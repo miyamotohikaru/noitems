@@ -172,16 +172,24 @@ export function HeroObject({ className = "" }: { className?: string }) {
       const size = new THREE.Vector3();
       const center = new THREE.Vector3();
       const dir = new THREE.Vector3(0.6194, 0.1998, 0.7592).normalize();
-      const MARGIN = 1.21; // 元ビューアの fit() と同じ
+      // 元ビューアの fit() は 1.21。ヒーローでは枠いっぱいまで寄せて、
+      // 塗装の粒子が見える大きさで描く（小さいと粒が1画素を切って消える）
+      const MARGIN = 1.12;
+      // ほどけた姿は縦横に伸びるが、そのたび全部を収めようとすると
+      // 細い線が画面の隅で小さくなってしまう。畳まれた姿の大きさを基準に、
+      // 引きすぎない上限を設けて、常に見応えのある大きさを保つ。
+      let baseRadius = 0;
+      const MAX_ZOOM_OUT = 2.1; // 畳まれた姿の何倍まで引いてよいか
       const fitDistance = () => {
         box.setFromObject(model);
         box.getSize(size);
         box.getCenter(center);
         // 中心を原点に寄せて、いつも同じ場所で回るようにする
         model.position.sub(center.clone().applyQuaternion(model.quaternion));
-        return (
-          (size.length() / 2 / Math.sin((camera.fov * Math.PI) / 360)) * MARGIN
-        );
+        let r = size.length() / 2;
+        if (!baseRadius) baseRadius = r;
+        r = Math.min(r, baseRadius * MAX_ZOOM_OUT);
+        return (r / Math.sin((camera.fov * Math.PI) / 360)) * MARGIN;
       };
       let curDist = fitDistance();
       const place = () => {
@@ -224,13 +232,60 @@ export function HeroObject({ className = "" }: { className?: string }) {
       }
 
       // ── 動き
-      // 部品どうしがぶつからないよう、関節を一つずつ順に回していく。
-      // 同時に全部動かすと、途中の姿で必ずめり込む。
-      let poseIndex = 0;
-      let from = POSES[0].slice();
-      let to = POSES[1 % POSES.length].slice();
-      const step = TURN + GAP;
-      const legTotal = joints.length * step + REST;
+      // 部品どうしがぶつからないよう、関節は一つずつ順に回す。
+      // ただし「端から順に同じ速さ」だと機械的に見えるので、
+      // 回す順番・速さ・間合いを毎回ばらす。行き先のポーズも選び直す。
+      type Plan = {
+        from: number[];
+        to: number[];
+        order: number[];
+        at: number[]; // 各関節が回りはじめる時刻
+        dur: number[]; // 各関節を回しきる時間
+        total: number;
+      };
+      const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+      const shuffle = <T,>(a: T[]) => {
+        const x = a.slice();
+        for (let i = x.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [x[i], x[j]] = [x[j], x[i]];
+        }
+        return x;
+      };
+
+      let planFrom = POSES[0].slice();
+      let planIndex = 0;
+
+      const makePlan = (): Plan => {
+        // 直前と違うポーズを選ぶ
+        let next = planIndex;
+        while (next === planIndex && POSES.length > 1)
+          next = Math.floor(Math.random() * POSES.length);
+        planIndex = next;
+
+        const order = shuffle(joints.map((_, i) => i));
+        const at: number[] = new Array(joints.length);
+        const dur: number[] = new Array(joints.length);
+        let t = 0;
+        order.forEach((j, k) => {
+          // ときどき数関節が重なって動く。ずっと一つずつだと単調
+          const overlap = Math.random() < 0.35 && k > 0 ? rnd(0.35, 0.75) : 0;
+          dur[j] = rnd(0.55, 1.5);
+          at[j] = Math.max(0, t - dur[j] * overlap);
+          t = at[j] + dur[j] + rnd(0.02, 0.3);
+        });
+        return {
+          from: planFrom.slice(),
+          to: POSES[planIndex].slice(),
+          order,
+          at,
+          dur,
+          total: t + rnd(1.6, 4.2), // 決まってから次に動き出すまでの間
+        };
+      };
+
+      let plan = makePlan();
+      let legStart = performance.now() / 1000;
       const start = performance.now();
       const ease = (t: number) =>
         t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -243,20 +298,22 @@ export function HeroObject({ className = "" }: { className?: string }) {
       };
 
       renderer.setAnimationLoop(() => {
+        const nowSec = performance.now() / 1000;
         const now = (performance.now() - start) / 1000;
-        const legTime = now % legTotal;
-        const leg = Math.floor(now / legTotal);
+        let legTime = nowSec - legStart;
 
-        if (leg !== poseIndex) {
-          poseIndex = leg;
-          from = to.slice();
-          to = POSES[(leg + 1) % POSES.length].slice();
+        if (legTime >= plan.total) {
+          planFrom = plan.to.slice();
+          plan = makePlan();
+          legStart = nowSec;
+          legTime = 0;
         }
 
         joints.forEach((_, i) => {
-          const t0 = i * step;
-          const k = ease(Math.min(1, Math.max(0, (legTime - t0) / TURN)));
-          cur[i] = from[i] + shortest(from[i], to[i]) * k;
+          const k = ease(
+            Math.min(1, Math.max(0, (legTime - plan.at[i]) / plan.dur[i])),
+          );
+          cur[i] = plan.from[i] + shortest(plan.from[i], plan.to[i]) * k;
         });
         setPose();
 
@@ -265,8 +322,9 @@ export function HeroObject({ className = "" }: { className?: string }) {
         curDist += (want - curDist) * 0.04;
         place();
 
-        // 見る角度もゆっくり。回しすぎると落ち着かない
-        pivot.rotation.y = Math.sin(now * 0.06) * 0.3;
+        // 見る角度も、速さの違う2つの波を重ねて単調さを消す
+        pivot.rotation.y =
+          Math.sin(now * 0.061) * 0.26 + Math.sin(now * 0.017 + 1.7) * 0.13;
         renderer.render(scene, camera);
       });
 

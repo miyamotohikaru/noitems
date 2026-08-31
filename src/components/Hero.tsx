@@ -13,7 +13,7 @@ export function Hero() {
       {/* デスクトップ ── 紙の上に直に置く。矩形の縁をつくらない */}
       <HeroObject
         className="pointer-events-none absolute right-[8%] top-1/2 hidden
-                   w-[min(30vw,25rem)] -translate-y-1/2 md:block"
+                   w-[min(40vw,34rem)] -translate-y-1/2 md:block"
       />
 
       {/* キービジュアルの署名。明朝の縦組みでここだけ書体を変える */}
@@ -63,7 +63,7 @@ export function Hero() {
 
         {/* モバイル ── 文字に重ねない。上下をたっぷりあけて、小さく置く */}
         <div className="mt-16 mb-4 flex justify-center md:hidden">
-          <HeroObject className="w-[58%]" />
+          <HeroObject className="w-[76%]" />
         </div>
       </div>
 
