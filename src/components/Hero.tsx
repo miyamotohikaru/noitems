@@ -1,5 +1,6 @@
 import { hero, site } from "@/lib/lot";
 import { Bracket } from "./Bracket";
+import { HeroObject } from "./HeroObject";
 
 /**
  * キービジュアルのポスターと同じ組み方にする。
@@ -10,13 +11,8 @@ export function Hero() {
   return (
     <section id="top" className="relative overflow-hidden">
       {/* デスクトップ ── 紙の上に直に置く。矩形の縁をつくらない */}
-      <img
-        src="/img/form-hero.webp"
-        alt=""
-        aria-hidden
-        fetchPriority="high"
-        decoding="async"
-        className="cutout pointer-events-none absolute right-[8%] top-1/2 hidden
+      <HeroObject
+        className="pointer-events-none absolute right-[8%] top-1/2 hidden
                    w-[min(30vw,25rem)] -translate-y-1/2 md:block"
       />
 
@@ -67,12 +63,7 @@ export function Hero() {
 
         {/* モバイル ── 文字に重ねない。上下をたっぷりあけて、小さく置く */}
         <div className="mt-16 mb-4 flex justify-center md:hidden">
-          <img
-            src="/img/form-hero.webp"
-            alt="つや消しの銀色をした、用途の定まらないかたち"
-            decoding="async"
-            className="cutout w-[58%]"
-          />
+          <HeroObject className="w-[58%]" />
         </div>
       </div>
 
