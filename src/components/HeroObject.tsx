@@ -174,12 +174,12 @@ export function HeroObject({ className = "" }: { className?: string }) {
       const dir = new THREE.Vector3(0.6194, 0.1998, 0.7592).normalize();
       // 元ビューアの fit() は 1.21。ヒーローでは枠いっぱいまで寄せて、
       // 塗装の粒子が見える大きさで描く（小さいと粒が1画素を切って消える）
-      const MARGIN = 1.12;
+      const MARGIN = 1.15;
       // ほどけた姿は縦横に伸びるが、そのたび全部を収めようとすると
       // 細い線が画面の隅で小さくなってしまう。畳まれた姿の大きさを基準に、
       // 引きすぎない上限を設けて、常に見応えのある大きさを保つ。
       let baseRadius = 0;
-      const MAX_ZOOM_OUT = 2.1; // 畳まれた姿の何倍まで引いてよいか
+      const MAX_ZOOM_OUT = 3.4; // 畳まれた姿の何倍まで引いてよいか
       const fitDistance = () => {
         box.setFromObject(model);
         box.getSize(size);
@@ -232,17 +232,14 @@ export function HeroObject({ className = "" }: { className?: string }) {
       }
 
       // ── 動き
-      // 部品どうしがぶつからないよう、関節は一つずつ順に回す。
-      // ただし「端から順に同じ速さ」だと機械的に見えるので、
-      // 回す順番・速さ・間合いを毎回ばらす。行き先のポーズも選び直す。
-      type Plan = {
-        from: number[];
-        to: number[];
-        order: number[];
-        at: number[]; // 各関節が回りはじめる時刻
-        dur: number[]; // 各関節を回しきる時間
-        total: number;
-      };
+      // 人が手で関節を回しているように見せる。機械的にならないよう、
+      //   ・回す順番、速さ、間合いを毎回ばらす
+      //   ・勢いよく回して行き過ぎ、少し戻って落ち着く（オーバーシュート）
+      //   ・ときどき数関節をまとめて動かし、ときどき手を止める
+      // 部品どうしのめり込みを避けるため、行き先は当たり判定を通ったポーズのみ。
+      type Move = { at: number; dur: number; over: number };
+      type Plan = { from: number[]; to: number[]; mv: Move[]; total: number };
+
       const rnd = (a: number, b: number) => a + Math.random() * (b - a);
       const shuffle = <T,>(a: T[]) => {
         const x = a.slice();
@@ -257,38 +254,48 @@ export function HeroObject({ className = "" }: { className?: string }) {
       let planIndex = 0;
 
       const makePlan = (): Plan => {
-        // 直前と違うポーズを選ぶ
         let next = planIndex;
         while (next === planIndex && POSES.length > 1)
           next = Math.floor(Math.random() * POSES.length);
         planIndex = next;
 
         const order = shuffle(joints.map((_, i) => i));
-        const at: number[] = new Array(joints.length);
-        const dur: number[] = new Array(joints.length);
+        const mv: Move[] = new Array(joints.length);
         let t = 0;
-        order.forEach((j, k) => {
-          // ときどき数関節が重なって動く。ずっと一つずつだと単調
-          const overlap = Math.random() < 0.35 && k > 0 ? rnd(0.35, 0.75) : 0;
-          dur[j] = rnd(0.55, 1.5);
-          at[j] = Math.max(0, t - dur[j] * overlap);
-          t = at[j] + dur[j] + rnd(0.02, 0.3);
-        });
+        let k = 0;
+        while (k < order.length) {
+          // 手でまとめて掴むように、1〜4関節を一度に動かすことがある
+          const group = Math.random() < 0.45 ? Math.ceil(rnd(2, 4.99)) : 1;
+          const dur = rnd(0.22, 0.6);
+          for (let n = 0; n < group && k < order.length; n++, k++) {
+            mv[order[k]] = {
+              at: t + rnd(0, 0.09), // 同時でも、わずかにずれる
+              dur: dur * rnd(0.85, 1.2),
+              over: Math.random() < 0.7 ? rnd(0.04, 0.16) : 0, // 行き過ぎ量
+            };
+          }
+          // 手を止める間。たまに長めに考える
+          t += dur + (Math.random() < 0.18 ? rnd(0.25, 0.7) : rnd(0.02, 0.14));
+        }
         return {
           from: planFrom.slice(),
           to: POSES[planIndex].slice(),
-          order,
-          at,
-          dur,
-          total: t + rnd(1.6, 4.2), // 決まってから次に動き出すまでの間
+          mv,
+          total: t + rnd(0.5, 1.4),
         };
       };
 
       let plan = makePlan();
       let legStart = performance.now() / 1000;
       const start = performance.now();
-      const ease = (t: number) =>
-        t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+      /** 勢いよく出て、行き過ぎてから落ち着く */
+      const settle = (t: number, over: number) => {
+        if (t <= 0) return 0;
+        if (t >= 1) return 1;
+        const e = 1 - Math.pow(1 - t, 3); // 速く出て、ゆっくり収まる
+        return e + over * Math.sin(t * Math.PI * 2) * (1 - t);
+      };
       /** −180〜180 の最短回り */
       const shortest = (a: number, bb: number) => {
         let d = bb - a;
@@ -310,21 +317,23 @@ export function HeroObject({ className = "" }: { className?: string }) {
         }
 
         joints.forEach((_, i) => {
-          const k = ease(
-            Math.min(1, Math.max(0, (legTime - plan.at[i]) / plan.dur[i])),
-          );
+          const m = plan.mv[i];
+          const k = settle((legTime - m.at) / m.dur, m.over);
           cur[i] = plan.from[i] + shortest(plan.from[i], plan.to[i]) * k;
         });
         setPose();
 
-        // 大きさが変わるので、距離をゆっくり追いかける
+        // 大きさが変わるので、距離を追いかける
         const want = fitDistance();
-        curDist += (want - curDist) * 0.04;
+        curDist += (want - curDist) * 0.13;
         place();
 
-        // 見る角度も、速さの違う2つの波を重ねて単調さを消す
+        // 手で持って眺めているような、一定でない揺れ
         pivot.rotation.y =
-          Math.sin(now * 0.061) * 0.26 + Math.sin(now * 0.017 + 1.7) * 0.13;
+          Math.sin(now * 0.23) * 0.2 +
+          Math.sin(now * 0.081 + 1.7) * 0.16 +
+          Math.sin(now * 0.041 + 3.1) * 0.1;
+        pivot.rotation.x = Math.sin(now * 0.11 + 0.6) * 0.05;
         renderer.render(scene, camera);
       });
 
