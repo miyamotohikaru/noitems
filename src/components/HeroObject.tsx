@@ -40,9 +40,6 @@ export function HeroObject({ className = "" }: { className?: string }) {
       const { GLTFLoader } = await import(
         "three/examples/jsm/loaders/GLTFLoader.js"
       );
-      const { MeshoptDecoder } = await import(
-        "three/examples/jsm/libs/meshopt_decoder.module.js"
-      );
       const { RectAreaLightUniformsLib } = await import(
         "three/examples/jsm/lights/RectAreaLightUniformsLib.js"
       );
@@ -119,12 +116,11 @@ export function HeroObject({ className = "" }: { className?: string }) {
         scene.add(la);
       });
 
-      const camera = new THREE.PerspectiveCamera(24, 1, 0.1, 100);
+      const camera = new THREE.PerspectiveCamera(14, 1, 0.1, 100);
       const pivot = new THREE.Group();
       scene.add(pivot);
 
       const loader = new GLTFLoader();
-      loader.setMeshoptDecoder(MeshoptDecoder);
       const gltf = await loader.loadAsync("/models/sykim.glb");
       if (disposed) {
         renderer.dispose();
@@ -175,8 +171,8 @@ export function HeroObject({ className = "" }: { className?: string }) {
       const box = new THREE.Box3();
       const size = new THREE.Vector3();
       const center = new THREE.Vector3();
-      const dir = new THREE.Vector3(0.62, 0.2, 0.76).normalize();
-      const MARGIN = 1.28;
+      const dir = new THREE.Vector3(0.6194, 0.1998, 0.7592).normalize();
+      const MARGIN = 1.21; // 元ビューアの fit() と同じ
       const fitDistance = () => {
         box.setFromObject(model);
         box.getSize(size);

@@ -11,7 +11,7 @@ export const LOOK = {
   "view": {
     "transform": "AgX",
     "look": "AgX - Base Contrast",
-    "exposure": -1.06,
+    "exposure": -1.475,
     "gamma": 1.5347
   },
   "lights": [
@@ -125,9 +125,9 @@ export const LOOK = {
   },
   "mat": {
     "base": [
-      0.300,
-      0.336,
-      0.424
+      0.33843,
+      0.34205,
+      0.38765
     ],
     "metallic": 0.775,
     "rough_min": 0.1,
@@ -168,12 +168,12 @@ export function applyLook(THREE, mat, L) {
     sh.uniforms.uBumpScale={value:m.bump_noise_scale*(3.3)};
     sh.uniforms.uBumpStr={value:m.bump_strength*(0.02)};
     // ラメ：Blenderのフレーク層（ノイズの上位だけを、つるつるで明るい粒にする）
-    sh.uniforms.uFlakeScale={value:(22)};
+    sh.uniforms.uFlakeScale={value:(5)};
     sh.uniforms.uFlakeMin={value:(0.74)};      // Blender値0.8より少し多めに出す
     sh.uniforms.uFlakeMax={value:(m.flake_from_max)};
     sh.uniforms.uFlakeRough={value:(m.flake_rough)};
-    sh.uniforms.uFlakeMul={value:(2.2)};         // Blender値2.4より強め（Web用）
-    sh.uniforms.uFlakeBump={value:(0.16)};       // 粒ごとに向きを散らして影側でもキラつかせる
+    sh.uniforms.uFlakeMul={value:(4)};         // Blender値2.4より強め（Web用）
+    sh.uniforms.uFlakeBump={value:(0.35)};       // 粒ごとに向きを散らして影側でもキラつかせる
     sh.vertexShader='varying vec3 vObjPos;\nvarying mat3 vNM;\n'+sh.vertexShader.replace(
       '#include <begin_vertex>','#include <begin_vertex>\n  vObjPos = position;\n  vNM = normalMatrix;');
     const pre = `
