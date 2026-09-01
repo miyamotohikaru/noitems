@@ -10,10 +10,12 @@ import { HeroObject } from "./HeroObject";
 export function Hero() {
   return (
     <section id="top" className="relative overflow-hidden">
-      {/* デスクトップ ── 紙の上に直に置く。矩形の縁をつくらない */}
+      {/* デスクトップ ── 紙の上に直に置く。矩形の縁をつくらない。
+          倍の大きさにすると本文の領域まで届くので、文字の“後ろ”に敷く。
+          文字は z-10 で前に出しているので読みやすさは保たれる。 */}
       <HeroObject
-        className="pointer-events-none absolute right-[2%] top-1/2 hidden
-                   w-[min(52vw,44rem)] -translate-y-1/2 md:block"
+        className="pointer-events-none absolute right-[-6%] top-1/2 z-0 hidden
+                   w-[min(86vw,74rem)] -translate-y-1/2 md:block"
       />
 
       {/* キービジュアルの署名。明朝の縦組みでここだけ書体を変える */}
@@ -62,8 +64,8 @@ export function Hero() {
         </div>
 
         {/* モバイル ── 文字に重ねない。上下をたっぷりあけて、小さく置く */}
-        <div className="mt-8 -mb-4 flex justify-center md:hidden">
-          <HeroObject className="w-[96%]" />
+        <div className="mt-4 -mb-10 flex justify-center md:hidden">
+          <HeroObject className="w-[132%] -mx-[16%]" />
         </div>
       </div>
 

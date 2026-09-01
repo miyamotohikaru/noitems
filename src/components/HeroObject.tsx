@@ -198,9 +198,18 @@ export function HeroObject({ className = "" }: { className?: string }) {
       };
       place();
 
+      // 表示を大きくすると画素数が一気に増えて描画が追いつかなくなる。
+      // 見た目の大きさはそのままに、中で持つ画素数だけ上限をかける。
+      const MAX_PIXELS = 1500;
       const resize = () => {
         const w = el.clientWidth || 1;
         const h = el.clientHeight || 1;
+        const dpr = Math.min(
+          devicePixelRatio,
+          2,
+          MAX_PIXELS / Math.max(w, h),
+        );
+        renderer.setPixelRatio(Math.max(1, dpr));
         renderer.setSize(w, h, false);
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
@@ -238,7 +247,18 @@ export function HeroObject({ className = "" }: { className?: string }) {
       //   ・ときどき数関節をまとめて動かし、ときどき手を止める
       // 部品どうしのめり込みを避けるため、行き先は当たり判定を通ったポーズのみ。
       type Move = { at: number; dur: number; over: number };
-      type Plan = { from: number[]; to: number[]; mv: Move[]; total: number };
+      type Plan = {
+        from: number[];
+        to: number[];
+        mv: Move[];
+        /** 関節が動き終わる時刻 */
+        settled: number;
+        /** 見せる回転を終えて、次の形へ移る時刻 */
+        total: number;
+        /** 回る速さ（ラジアン毎秒）と向き */
+        spinSpeed: number;
+        spinDir: number;
+      };
 
       const rnd = (a: number, b: number) => a + Math.random() * (b - a);
       const shuffle = <T,>(a: T[]) => {
@@ -277,16 +297,25 @@ export function HeroObject({ className = "" }: { className?: string }) {
           // 手を止める間。たまに長めに考える
           t += dur + (Math.random() < 0.18 ? rnd(0.25, 0.7) : rnd(0.02, 0.14));
         }
+        // 形が決まったら、そのまま止めずに、ぐるりと回して見せる
+        const show = rnd(2.6, 4.4);
+        const settled = t + rnd(0.15, 0.5);
         return {
           from: planFrom.slice(),
           to: POSES[planIndex].slice(),
           mv,
-          total: t + rnd(0.5, 1.4),
+          settled,
+          total: settled + show,
+          // 1周に 9〜18秒。向きも姿ごとにばらす
+          spinSpeed: rnd(Math.PI * 2 / 18, Math.PI * 2 / 9),
+          spinDir: Math.random() < 0.5 ? -1 : 1,
         };
       };
 
       let plan = makePlan();
       let legStart = performance.now() / 1000;
+      let spinAngle = 0; // 回した角度。積み上げるだけで巻き戻さない
+      let lastT = performance.now() / 1000;
       const start = performance.now();
 
       /** 勢いよく出て、行き過ぎてから落ち着く */
@@ -307,6 +336,8 @@ export function HeroObject({ className = "" }: { className?: string }) {
       renderer.setAnimationLoop(() => {
         const nowSec = performance.now() / 1000;
         const now = (performance.now() - start) / 1000;
+        const dt = Math.min(0.05, nowSec - lastT);
+        lastT = nowSec;
         let legTime = nowSec - legStart;
 
         if (legTime >= plan.total) {
@@ -328,11 +359,22 @@ export function HeroObject({ className = "" }: { className?: string }) {
         curDist += (want - curDist) * 0.13;
         place();
 
-        // 手で持って眺めているような、一定でない揺れ
+        // 回転は止めない。形を変えているあいだは控えめに、
+        // 形が決まってからは、しっかり回して全体を見せる。
+        // 「止まる」瞬間をつくらないので、いつ見ても動いている。
+        const settledT = Math.min(
+          1,
+          Math.max(0, (legTime - plan.settled) / 0.8),
+        );
+        const ramp = settledT * settledT * (3 - 2 * settledT);
+        // 形を変えている間 0.25、見せている間 1.0 の速さ
+        spinAngle += plan.spinDir * (0.25 + 0.75 * ramp) * plan.spinSpeed * dt;
+
+        // 手で持って眺めているような、一定でない揺れを重ねる
         pivot.rotation.y =
-          Math.sin(now * 0.23) * 0.2 +
-          Math.sin(now * 0.081 + 1.7) * 0.16 +
-          Math.sin(now * 0.041 + 3.1) * 0.1;
+          spinAngle +
+          Math.sin(now * 0.23) * 0.06 +
+          Math.sin(now * 0.081 + 1.7) * 0.05;
         pivot.rotation.x = Math.sin(now * 0.11 + 0.6) * 0.05;
         renderer.render(scene, camera);
       });
