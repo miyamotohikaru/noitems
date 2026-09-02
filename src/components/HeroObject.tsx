@@ -181,11 +181,17 @@ export function HeroObject({ className = "" }: { className?: string }) {
       let baseRadius = 0;
       const MAX_ZOOM_OUT = 3.4; // 畳まれた姿の何倍まで引いてよいか
       const fitDistance = () => {
+        // ⚠️ 中心合わせは model.position を足し引きしてはいけない。
+        // 毎フレーム引き算すると誤差が積み上がり、しかも pivot の回転が
+        // 掛かるので、少しずつ横へ流れて画面の外に出てしまう。
+        // いったん位置を戻してから測り、その結果を「代入」する。
+        model.position.set(0, 0, 0);
+        model.updateMatrixWorld(true);
         box.setFromObject(model);
         box.getSize(size);
         box.getCenter(center);
-        // 中心を原点に寄せて、いつも同じ場所で回るようにする
-        model.position.sub(center.clone().applyQuaternion(model.quaternion));
+        model.position.set(-center.x, -center.y, -center.z);
+
         let r = size.length() / 2;
         if (!baseRadius) baseRadius = r;
         r = Math.min(r, baseRadius * MAX_ZOOM_OUT);
@@ -274,9 +280,16 @@ export function HeroObject({ className = "" }: { className?: string }) {
       let planIndex = 0;
 
       const makePlan = (): Plan => {
-        let next = planIndex;
-        while (next === planIndex && POSES.length > 1)
-          next = Math.floor(Math.random() * POSES.length);
+        // 畳まれた塊（0番）は作品の顔なので、3回に1回はそこへ戻す。
+        // 完全な乱数だと、ほどけた形ばかりが続いて塊が出てこない。
+        let next: number;
+        if (planIndex !== 0 && Math.random() < 0.34) {
+          next = 0;
+        } else {
+          next = planIndex;
+          while (next === planIndex && POSES.length > 1)
+            next = Math.floor(Math.random() * POSES.length);
+        }
         planIndex = next;
 
         const order = shuffle(joints.map((_, i) => i));
