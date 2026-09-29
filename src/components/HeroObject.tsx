@@ -180,17 +180,26 @@ export function HeroObject({ className = "" }: { className?: string }) {
       // 引きすぎない上限を設けて、常に見応えのある大きさを保つ。
       let baseRadius = 0;
       const MAX_ZOOM_OUT = 3.4; // 畳まれた姿の何倍まで引いてよいか
+      const aim = new THREE.Vector3();
       const fitDistance = () => {
-        // ⚠️ 中心合わせは model.position を足し引きしてはいけない。
-        // 毎フレーム引き算すると誤差が積み上がり、しかも pivot の回転が
-        // 掛かるので、少しずつ横へ流れて画面の外に出てしまう。
-        // いったん位置を戻してから測り、その結果を「代入」する。
+        // ⚠️ 中心は「回転を外した姿」で測る。
+        // 回ったままの世界座標で測ると、回るたびに中心が動いて軸がぶれる。
+        // また位置は足し引きせず代入する（引き算だと誤差が積み上がり、
+        // 少しずつ横へ流れて画面の外に出てしまう）。
+        const ry = pivot.rotation.y;
+        const rx = pivot.rotation.x;
+        pivot.rotation.set(0, 0, 0);
         model.position.set(0, 0, 0);
-        model.updateMatrixWorld(true);
+        pivot.updateMatrixWorld(true);
         box.setFromObject(model);
         box.getSize(size);
         box.getCenter(center);
-        model.position.set(-center.x, -center.y, -center.z);
+        pivot.rotation.x = rx;
+        pivot.rotation.y = ry;
+
+        // 形が変わると中心も動く。そのまま当てると跳ねるので、ゆっくり寄せる
+        aim.lerp(center, 0.08);
+        model.position.set(-aim.x, -aim.y, -aim.z);
 
         let r = size.length() / 2;
         if (!baseRadius) baseRadius = r;
@@ -261,9 +270,7 @@ export function HeroObject({ className = "" }: { className?: string }) {
         settled: number;
         /** 見せる回転を終えて、次の形へ移る時刻 */
         total: number;
-        /** 回る速さ（ラジアン毎秒）と向き */
-        spinSpeed: number;
-        spinDir: number;
+
       };
 
       const rnd = (a: number, b: number) => a + Math.random() * (b - a);
@@ -319,15 +326,13 @@ export function HeroObject({ className = "" }: { className?: string }) {
           mv,
           settled,
           total: settled + show,
-          // 1周に 9〜18秒。向きも姿ごとにばらす
-          spinSpeed: rnd(Math.PI * 2 / 18, Math.PI * 2 / 9),
-          spinDir: Math.random() < 0.5 ? -1 : 1,
         };
       };
 
       let plan = makePlan();
       let legStart = performance.now() / 1000;
       let spinAngle = 0; // 回した角度。積み上げるだけで巻き戻さない
+      const SPIN_SPEED = (Math.PI * 2) / 14; // 1周14秒。速さも向きも変えない
       let lastT = performance.now() / 1000;
       const start = performance.now();
 
@@ -372,23 +377,11 @@ export function HeroObject({ className = "" }: { className?: string }) {
         curDist += (want - curDist) * 0.13;
         place();
 
-        // 回転は止めない。形を変えているあいだは控えめに、
-        // 形が決まってからは、しっかり回して全体を見せる。
-        // 「止まる」瞬間をつくらないので、いつ見ても動いている。
-        const settledT = Math.min(
-          1,
-          Math.max(0, (legTime - plan.settled) / 0.8),
-        );
-        const ramp = settledT * settledT * (3 - 2 * settledT);
-        // 形を変えている間 0.25、見せている間 1.0 の速さ
-        spinAngle += plan.spinDir * (0.25 + 0.75 * ramp) * plan.spinSpeed * dt;
-
-        // 手で持って眺めているような、一定でない揺れを重ねる
-        pivot.rotation.y =
-          spinAngle +
-          Math.sin(now * 0.23) * 0.06 +
-          Math.sin(now * 0.081 + 1.7) * 0.05;
-        pivot.rotation.x = Math.sin(now * 0.11 + 0.6) * 0.05;
+        // 真ん中を軸に、一定の速さで回し続ける。
+        // 揺らぎは入れない（軸がぶれて見えるため）。
+        spinAngle += SPIN_SPEED * dt;
+        pivot.rotation.y = spinAngle;
+        pivot.rotation.x = 0;
         renderer.render(scene, camera);
       });
 
