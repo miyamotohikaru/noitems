@@ -334,8 +334,8 @@ export function HeroObject({
         }
         planIndex = next;
 
-        // 戻すときは、ばらけた順ではなく端から順に、ゆっくり畳む。
-        // 手で一本ずつ戻していくような収まり方にする。
+        // 戻すときは、ばらけた順ではなく端から順に。
+        // ただし一本ずつ待たずに、全部を一度に動かして約1秒で畳む。
         const order = calm
           ? joints.map((_, i) => i)
           : shuffle(joints.map((_, i) => i));
@@ -345,15 +345,16 @@ export function HeroObject({
         while (k < order.length) {
           // 手でまとめて掴むように、1〜4関節を一度に動かすことがある
           const group = calm
-            ? 3
+            ? order.length // 戻すときは全部いっぺんに
             : Math.random() < 0.45
               ? Math.ceil(rnd(2, 4.99))
               : 1;
-          const dur = calm ? 0.42 : rnd(0.22, 0.6);
+          const dur = calm ? 0.72 : rnd(0.22, 0.6);
           for (let n = 0; n < group && k < order.length; n++, k++) {
             mv[order[k]] = {
-              at: t + rnd(0, 0.09), // 同時でも、わずかにずれる
-              dur: dur * rnd(0.85, 1.2),
+              // 同時でも、わずかにずれる。戻すときのずれは小さく、ひと息に見せる
+              at: t + rnd(0, calm ? 0.1 : 0.09),
+              dur: dur * (calm ? rnd(0.95, 1.08) : rnd(0.85, 1.2)),
               // 戻すときは行き過ぎさせない。すっと収める
               over: calm ? 0 : Math.random() < 0.7 ? rnd(0.04, 0.16) : 0,
             };
@@ -364,7 +365,7 @@ export function HeroObject({
         // 形が決まったら、そのまま止めずに、ぐるりと回して見せる
         // 戻したあとは、畳まれた姿をしばらく見せてから次へ
         const show = calm ? 7.5 : rnd(2.6, 4.4);
-        const settled = t + rnd(0.15, 0.5);
+        const settled = t + (calm ? 0.05 : rnd(0.15, 0.5));
         return {
           from: planFrom.slice(),
           to: POSES[planIndex].slice(),
@@ -383,11 +384,28 @@ export function HeroObject({
         planFrom = cur.slice();
         plan = makePlan(0, true);
         legStart = performance.now() / 1000;
+        // いちばん近い正面へ。行きすぎず戻りすぎず、最短で合わせる
+        spinFrom = spinAngle;
+        spinTo = Math.round(spinAngle / TAU) * TAU;
+        spinStart = legStart;
+        spinDur = plan.settled;
       };
       resetRef.current = doReset;
       unregister = addResetter(doReset);
       let spinAngle = 0; // 回した角度。積み上げるだけで巻き戻さない
       const SPIN_SPEED = (Math.PI * 2) / 14; // 1周14秒。速さも向きも変えない
+      const TAU = Math.PI * 2;
+      /**
+       * 「戻す」のあいだだけ、向きも立ち上がりの角度へ寄せる。
+       *
+       * 塊は立方体に近いので、同じ形でも向きしだいで見かけの幅が17%変わる。
+       * 形だけ戻して向きを放っておくと「大きくなった」ように見える。
+       * 戻り終わりでちょうど正面（2πの倍数）に来るようにする。
+       */
+      let spinFrom = 0;
+      let spinTo = 0;
+      let spinStart = 0;
+      let spinDur = 0;
       let lastT = performance.now() / 1000;
       const start = performance.now();
 
@@ -427,14 +445,26 @@ export function HeroObject({
         });
         setPose();
 
-        // 大きさが変わるので、距離を追いかける
+        // 大きさが変わるので、距離を追いかける。
+        // 戻すあいだは速く寄る。ふだんの追いかけ方だと関節が畳み終わってからも
+        // 1秒ほどカメラだけ動き続けて、「シュッと戻った」感じにならない
         const want = fitDistance();
-        curDist += (want - curDist) * 0.13;
+        curDist += (want - curDist) * (spinDur > 0 ? 0.34 : 0.13);
         place();
 
         // 真ん中を軸に、一定の速さで回し続ける。
         // 揺らぎは入れない（軸がぶれて見えるため）。
-        spinAngle += SPIN_SPEED * dt;
+        if (spinDur > 0) {
+          const k = (nowSec - spinStart) / spinDur;
+          if (k >= 1) {
+            spinAngle = spinTo;
+            spinDur = 0;
+          } else {
+            spinAngle = spinFrom + (spinTo - spinFrom) * settle(k, 0);
+          }
+        } else {
+          spinAngle += SPIN_SPEED * dt;
+        }
         pivot.rotation.y = spinAngle;
         pivot.rotation.x = 0;
         renderer.render(scene, camera);
