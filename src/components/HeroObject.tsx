@@ -207,8 +207,11 @@ export function HeroObject({
         pivot.rotation.x = rx;
         pivot.rotation.y = ry;
 
-        // 形が変わると中心も動く。そのまま当てると跳ねるので、ゆっくり寄せる
-        aim.lerp(center, 0.08);
+        // 形が変わると中心も動く。そのまま当てると跳ねるので、ゆっくり寄せる。
+        // ただし一枚目だけは即座に合わせる。ゆっくり寄せると、場つなぎの
+        // 静止画から切り替わったあと数コマ位置が動いて、それが段差に見える
+        if (!baseRadius) aim.copy(center);
+        else aim.lerp(center, 0.08);
         model.position.set(-aim.x, -aim.y, -aim.z);
 
         let r = size.length() / 2;
@@ -448,26 +451,26 @@ export function HeroObject({
     <div className={className}>
       <div className="relative">
         {/* 準備ができるまでの場つなぎ。
-            枠は立体と同じ大きさで確保しつつ、中の静止画は小さく置く。
-            枠いっぱいに引き伸ばすと、読み込み直後に巨大な塊が一瞬出て、
-            3Dに切り替わった瞬間に縮むので、目に付く段差になる。 */}
-        <div
+            この静止画は立体そのものを焼いたもの（同じ光・同じ角度・同じ姿）。
+            別に作った絵を置くと、色も影も違うので「別のもの」が一瞬映る。
+            差し替えるときは 3D を止めて焼き直すこと。
+            重ねて薄めない（クロスフェードしない）。光の当たり方だけはわずかに
+            違うので、重ねると二重写りに見える。ほぼ同じ絵なので、切り替えは一瞬でよい。
+            枠は正方形で確保し、canvas と同じ場所・同じ大きさで重ねる。
+            影（.cutout）は付けない。立体の側に影がないので、そこで差が出る。 */}
+        <div aria-hidden className="aspect-square w-full" />
+        <img
+          src="/img/form-hero.webp"
+          alt="つや消しの銀色をした、用途の定まらないかたち"
+          decoding="async"
           data-ready={ready}
-          className="flex aspect-square w-full items-center justify-center
-                     transition-opacity duration-700 data-[ready=true]:opacity-0"
-        >
-          <img
-            src="/img/form-hero.webp"
-            alt="つや消しの銀色をした、用途の定まらないかたち"
-            decoding="async"
-            className="cutout w-[34%]"
-          />
-        </div>
+          className="absolute inset-0 h-full w-full data-[ready=true]:opacity-0"
+        />
         <div
           ref={holder}
           data-ready={ready}
           aria-hidden
-          className="absolute inset-0 opacity-0 transition-opacity duration-1000 data-[ready=true]:opacity-100"
+          className="absolute inset-0 opacity-0 data-[ready=true]:opacity-100"
         />
 
         {/* 押すと畳まれた塊へ戻る。
