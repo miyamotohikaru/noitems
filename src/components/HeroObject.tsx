@@ -24,6 +24,25 @@ const GAP = 0.12;
 /** ポーズが決まってから、次のポーズへ動き出すまで */
 const REST = 2.6;
 
+/**
+ * 「元の形へ戻す」の受け皿。
+ *
+ * ⚠️ window に1つだけ置かないこと。立体はデスクトップ用とスマホ用の
+ * 2つが同時に生きていて（片方は CSS で隠れているだけ）、窓口が1つだと
+ * あとから立ち上がったほう＝隠れているほうに上書きされ、
+ * ボタンを押しても何も起きなくなる。ここでは全部に配って、まとめて呼ぶ。
+ */
+const resetters = new Set<() => void>();
+const watchers = new Set<() => void>();
+function addResetter(fn: () => void) {
+  resetters.add(fn);
+  watchers.forEach((w) => w());
+  return () => {
+    resetters.delete(fn);
+    watchers.forEach((w) => w());
+  };
+}
+
 export function HeroObject({
   className = "",
   showReset = true,
@@ -44,6 +63,7 @@ export function HeroObject({
 
     let disposed = false;
     let cleanup: (() => void) | undefined;
+    let unregister: (() => void) | undefined;
 
     (async () => {
       const THREE = await import("three");
@@ -365,8 +385,7 @@ export function HeroObject({
         legStart = performance.now() / 1000;
       };
       resetRef.current = doReset;
-      (window as unknown as { __resetHeroForm__?: () => void }).__resetHeroForm__ =
-        doReset;
+      unregister = addResetter(doReset);
       let spinAngle = 0; // 回した角度。積み上げるだけで巻き戻さない
       const SPIN_SPEED = (Math.PI * 2) / 14; // 1周14秒。速さも向きも変えない
       let lastT = performance.now() / 1000;
@@ -441,6 +460,7 @@ export function HeroObject({
 
     return () => {
       disposed = true;
+      unregister?.();
       cleanup?.();
     };
   }, []);
@@ -511,14 +531,12 @@ export function ResetFormButton({ className = "" }: { className?: string }) {
 
   useEffect(() => {
     // 立体の準備ができるまでボタンを出さない
-    const id = window.setInterval(() => {
-      const w = window as unknown as { __resetHeroForm__?: () => void };
-      if (w.__resetHeroForm__) {
-        setAlive(true);
-        window.clearInterval(id);
-      }
-    }, 300);
-    return () => window.clearInterval(id);
+    const sync = () => setAlive(resetters.size > 0);
+    sync();
+    watchers.add(sync);
+    return () => {
+      watchers.delete(sync);
+    };
   }, []);
 
   if (!alive) return null;
@@ -527,7 +545,8 @@ export function ResetFormButton({ className = "" }: { className?: string }) {
     <button
       type="button"
       onClick={() => {
-        (window as unknown as { __resetHeroForm__?: () => void }).__resetHeroForm__?.();
+        // 隠れているほうも一緒に戻す。どちらが見えているかはここでは決めない
+        resetters.forEach((fn) => fn());
         setResetting(true);
         window.setTimeout(() => setResetting(false), 1400);
       }}
