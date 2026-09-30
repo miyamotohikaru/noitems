@@ -15,7 +15,8 @@ export function Hero() {
           はみ出しは画面幅の％ではなく rem で持つ。％だと、立体を小さくしたときに
           枠だけ右に残って、物体の右端がかえって外へ出てしまう。 */}
       <HeroObject
-        className="pointer-events-none absolute right-[-2rem] top-1/2 z-0 hidden
+        className="pointer-events-none absolute top-1/2 z-0 hidden
+                   right-[3rem] 2xl:right-[7rem]
                    w-[min(64vw,55rem)] -translate-y-1/2 md:block"
         showReset={false}
       />
