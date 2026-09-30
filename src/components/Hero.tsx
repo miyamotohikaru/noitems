@@ -1,6 +1,6 @@
 import { hero, site } from "@/lib/lot";
 import { Bracket } from "./Bracket";
-import { HeroObject } from "./HeroObject";
+import { HeroObject, ResetFormButton } from "./HeroObject";
 
 /**
  * キービジュアルのポスターと同じ組み方にする。
@@ -16,6 +16,7 @@ export function Hero() {
       <HeroObject
         className="pointer-events-none absolute right-[-6%] top-1/2 z-0 hidden
                    w-[min(86vw,74rem)] -translate-y-1/2 md:block"
+        showReset={false}
       />
 
       {/* キービジュアルの署名。明朝の縦組みでここだけ書体を変える */}
@@ -61,6 +62,10 @@ export function Hero() {
               </p>
             ))}
           </div>
+
+          {/* かたちを戻すボタン。立体は画面いっぱいに大きく、その下に置くと
+              画面外へ出てしまうので、デスクトップでは本文の下に置く */}
+          <ResetFormButton className="mt-9 hidden md:inline-flex" />
         </div>
 
         {/* モバイル ── 文字に重ねない。上下をたっぷりあけて、小さく置く */}

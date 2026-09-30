@@ -24,9 +24,19 @@ const GAP = 0.12;
 /** ポーズが決まってから、次のポーズへ動き出すまで */
 const REST = 2.6;
 
-export function HeroObject({ className = "" }: { className?: string }) {
+export function HeroObject({
+  className = "",
+  showReset = true,
+}: {
+  className?: string;
+  /** 立体の中にボタンを重ねるか。デスクトップは本文側に別途置くので false */
+  showReset?: boolean;
+}) {
   const holder = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
+  /** ボタンから「元の形へ戻す」を呼ぶための受け皿 */
+  const resetRef = useRef<(() => void) | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     const el = holder.current;
@@ -286,11 +296,13 @@ export function HeroObject({ className = "" }: { className?: string }) {
       let planFrom = POSES[0].slice();
       let planIndex = 0;
 
-      const makePlan = (): Plan => {
+      const makePlan = (forceIndex?: number, calm = false): Plan => {
         // 畳まれた塊（0番）は作品の顔なので、3回に1回はそこへ戻す。
         // 完全な乱数だと、ほどけた形ばかりが続いて塊が出てこない。
         let next: number;
-        if (planIndex !== 0 && Math.random() < 0.34) {
+        if (forceIndex !== undefined) {
+          next = forceIndex;
+        } else if (planIndex !== 0 && Math.random() < 0.34) {
           next = 0;
         } else {
           next = planIndex;
@@ -299,26 +311,36 @@ export function HeroObject({ className = "" }: { className?: string }) {
         }
         planIndex = next;
 
-        const order = shuffle(joints.map((_, i) => i));
+        // 戻すときは、ばらけた順ではなく端から順に、ゆっくり畳む。
+        // 手で一本ずつ戻していくような収まり方にする。
+        const order = calm
+          ? joints.map((_, i) => i)
+          : shuffle(joints.map((_, i) => i));
         const mv: Move[] = new Array(joints.length);
         let t = 0;
         let k = 0;
         while (k < order.length) {
           // 手でまとめて掴むように、1〜4関節を一度に動かすことがある
-          const group = Math.random() < 0.45 ? Math.ceil(rnd(2, 4.99)) : 1;
-          const dur = rnd(0.22, 0.6);
+          const group = calm
+            ? 3
+            : Math.random() < 0.45
+              ? Math.ceil(rnd(2, 4.99))
+              : 1;
+          const dur = calm ? 0.42 : rnd(0.22, 0.6);
           for (let n = 0; n < group && k < order.length; n++, k++) {
             mv[order[k]] = {
               at: t + rnd(0, 0.09), // 同時でも、わずかにずれる
               dur: dur * rnd(0.85, 1.2),
-              over: Math.random() < 0.7 ? rnd(0.04, 0.16) : 0, // 行き過ぎ量
+              // 戻すときは行き過ぎさせない。すっと収める
+              over: calm ? 0 : Math.random() < 0.7 ? rnd(0.04, 0.16) : 0,
             };
           }
           // 手を止める間。たまに長めに考える
-          t += dur + (Math.random() < 0.18 ? rnd(0.25, 0.7) : rnd(0.02, 0.14));
+          t += dur + (calm ? 0.05 : Math.random() < 0.18 ? rnd(0.25, 0.7) : rnd(0.02, 0.14));
         }
         // 形が決まったら、そのまま止めずに、ぐるりと回して見せる
-        const show = rnd(2.6, 4.4);
+        // 戻したあとは、畳まれた姿をしばらく見せてから次へ
+        const show = calm ? 7.5 : rnd(2.6, 4.4);
         const settled = t + rnd(0.15, 0.5);
         return {
           from: planFrom.slice(),
@@ -331,6 +353,17 @@ export function HeroObject({ className = "" }: { className?: string }) {
 
       let plan = makePlan();
       let legStart = performance.now() / 1000;
+
+      // ボタンから呼ばれる。いまの姿を起点に、畳まれた塊へ戻す。
+      // デスクトップはボタンが本文側にあるので、窓口を window にも出す
+      const doReset = () => {
+        planFrom = cur.slice();
+        plan = makePlan(0, true);
+        legStart = performance.now() / 1000;
+      };
+      resetRef.current = doReset;
+      (window as unknown as { __resetHeroForm__?: () => void }).__resetHeroForm__ =
+        doReset;
       let spinAngle = 0; // 回した角度。積み上げるだけで巻き戻さない
       const SPIN_SPEED = (Math.PI * 2) / 14; // 1周14秒。速さも向きも変えない
       let lastT = performance.now() / 1000;
@@ -387,6 +420,9 @@ export function HeroObject({ className = "" }: { className?: string }) {
 
       setReady(true);
       cleanup = () => {
+        resetRef.current = null;
+        delete (window as unknown as { __resetHeroForm__?: () => void })
+          .__resetHeroForm__;
         renderer.setAnimationLoop(null);
         ro.disconnect();
         pm.dispose();
@@ -425,7 +461,68 @@ export function HeroObject({ className = "" }: { className?: string }) {
           aria-hidden
           className="absolute inset-0 opacity-0 transition-opacity duration-1000 data-[ready=true]:opacity-100"
         />
+
+        {/* 押すと畳まれた塊へ戻る。
+            立体は画面いっぱいに大きいので、その「下」に置くと画面外へ出る。
+            枠の内側、下端に重ねて置く。
+            立体は pointer-events-none で敷いてあるので、ここだけ触れるようにする */}
+        {showReset && (
+        <div className="pointer-events-auto absolute inset-x-0 bottom-[6%] z-10 flex justify-center">
+        <button
+          type="button"
+          disabled={!ready}
+          onClick={() => {
+            resetRef.current?.();
+            setResetting(true);
+            window.setTimeout(() => setResetting(false), 1400);
+          }}
+          className="btn-line min-h-10 px-5 text-[0.6875rem] tracking-[0.16em]
+                     disabled:pointer-events-none disabled:opacity-0
+                     transition-opacity duration-700"
+        >
+            {resetting ? "もどしています" : "はじめのかたちに戻す"}
+          </button>
+        </div>
+        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * かたちを戻すボタン。
+ * 立体が画面いっぱいに大きいので、その中に置くと画面外へ出てしまう。
+ * デスクトップでは本文の下に置き、window 経由で立体へ伝える。
+ */
+export function ResetFormButton({ className = "" }: { className?: string }) {
+  const [alive, setAlive] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  useEffect(() => {
+    // 立体の準備ができるまでボタンを出さない
+    const id = window.setInterval(() => {
+      const w = window as unknown as { __resetHeroForm__?: () => void };
+      if (w.__resetHeroForm__) {
+        setAlive(true);
+        window.clearInterval(id);
+      }
+    }, 300);
+    return () => window.clearInterval(id);
+  }, []);
+
+  if (!alive) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        (window as unknown as { __resetHeroForm__?: () => void }).__resetHeroForm__?.();
+        setResetting(true);
+        window.setTimeout(() => setResetting(false), 1400);
+      }}
+      className={`btn-line min-h-10 px-5 text-[0.6875rem] tracking-[0.16em] ${className}`}
+    >
+      {resetting ? "もどしています" : "はじめのかたちに戻す"}
+    </button>
   );
 }
