@@ -447,14 +447,22 @@ export function HeroObject({
   return (
     <div className={className}>
       <div className="relative">
-        {/* 準備ができるまでは静止画。できたら静かに入れ替える */}
-        <img
-          src="/img/form-hero.webp"
-          alt="つや消しの銀色をした、用途の定まらないかたち"
-          decoding="async"
+        {/* 準備ができるまでの場つなぎ。
+            枠は立体と同じ大きさで確保しつつ、中の静止画は小さく置く。
+            枠いっぱいに引き伸ばすと、読み込み直後に巨大な塊が一瞬出て、
+            3Dに切り替わった瞬間に縮むので、目に付く段差になる。 */}
+        <div
           data-ready={ready}
-          className="cutout w-full transition-opacity duration-1000 data-[ready=true]:opacity-0"
-        />
+          className="flex aspect-square w-full items-center justify-center
+                     transition-opacity duration-700 data-[ready=true]:opacity-0"
+        >
+          <img
+            src="/img/form-hero.webp"
+            alt="つや消しの銀色をした、用途の定まらないかたち"
+            decoding="async"
+            className="cutout w-[34%]"
+          />
+        </div>
         <div
           ref={holder}
           data-ready={ready}
