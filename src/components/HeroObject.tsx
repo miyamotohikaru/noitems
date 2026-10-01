@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type * as THREE_T from "three";
 import { LOOK, applyLook } from "@/lib/sykim/look";
 import { POSES } from "@/lib/sykim/poses";
+import { makeHitTest } from "@/lib/sykim/collide";
 
 /**
  * ヒーローの立体。
@@ -23,6 +24,25 @@ const TURN = 1.15;
 const GAP = 0.12;
 /** ポーズが決まってから、次のポーズへ動き出すまで */
 const REST = 2.6;
+
+/**
+ * 「元の形へ戻す」の受け皿。
+ *
+ * ⚠️ window に1つだけ置かないこと。立体はデスクトップ用とスマホ用の
+ * 2つが同時に生きていて（片方は CSS で隠れているだけ）、窓口が1つだと
+ * あとから立ち上がったほう＝隠れているほうに上書きされ、
+ * ボタンを押しても何も起きなくなる。ここでは全部に配って、まとめて呼ぶ。
+ */
+const resetters = new Set<() => void>();
+const watchers = new Set<() => void>();
+function addResetter(fn: () => void) {
+  resetters.add(fn);
+  watchers.forEach((w) => w());
+  return () => {
+    resetters.delete(fn);
+    watchers.forEach((w) => w());
+  };
+}
 
 export function HeroObject({
   className = "",
@@ -44,6 +64,7 @@ export function HeroObject({
 
     let disposed = false;
     let cleanup: (() => void) | undefined;
+    let unregister: (() => void) | undefined;
 
     (async () => {
       const THREE = await import("three");
@@ -139,7 +160,9 @@ export function HeroObject({
       const model = gltf.scene;
 
       // ── 素材（元ファイルの見た目をそのまま当てる）
+      // あわせて丸棒を「繋がっている順」に集める。めり込み判定がこの並びを使う
       let baseMat: THREE_T.MeshStandardMaterial | null = null;
+      const meshes: THREE_T.Mesh[] = [];
       model.traverse((o) => {
         const m = o as THREE_T.Mesh;
         if (!m.isMesh || !m.material || m.name.startsWith("seam")) return;
@@ -149,6 +172,7 @@ export function HeroObject({
         }
         m.material = baseMat!;
         (m.material as THREE_T.Material).side = THREE.FrontSide;
+        meshes.push(m);
       });
       // 繋ぎ目は本体と同じ金属味で、色だけ少し暗く
       const sd = 0.55;
@@ -172,6 +196,12 @@ export function HeroObject({
         if (/^J\d\d$/.test(o.name)) found.set(o.name, o);
       });
       const joints = [...found.keys()].sort().map((k) => found.get(k)!);
+      const hits = makeHitTest(THREE, model, meshes);
+      // 開発時だけ、外からめり込みを確かめられるようにする（本番ビルドには入らない）
+      if (process.env.NODE_ENV !== "production") {
+        const w = window as unknown as { __heroHits__?: (() => boolean)[] };
+        (w.__heroHits__ ||= []).push(hits);
+      }
 
       pivot.add(model);
 
@@ -207,8 +237,11 @@ export function HeroObject({
         pivot.rotation.x = rx;
         pivot.rotation.y = ry;
 
-        // 形が変わると中心も動く。そのまま当てると跳ねるので、ゆっくり寄せる
-        aim.lerp(center, 0.08);
+        // 形が変わると中心も動く。そのまま当てると跳ねるので、ゆっくり寄せる。
+        // ただし一枚目だけは即座に合わせる。ゆっくり寄せると、場つなぎの
+        // 静止画から切り替わったあと数コマ位置が動いて、それが段差に見える
+        if (!baseRadius) aim.copy(center);
+        else aim.lerp(center, 0.08);
         model.position.set(-aim.x, -aim.y, -aim.z);
 
         let r = size.length() / 2;
@@ -271,6 +304,21 @@ export function HeroObject({
       //   ・勢いよく回して行き過ぎ、少し戻って落ち着く（オーバーシュート）
       //   ・ときどき数関節をまとめて動かし、ときどき手を止める
       // 部品どうしのめり込みを避けるため、行き先は当たり判定を通ったポーズのみ。
+      /** 勢いよく出て、行き過ぎてから落ち着く */
+      const settle = (t: number, over: number) => {
+        if (t <= 0) return 0;
+        if (t >= 1) return 1;
+        const e = 1 - Math.pow(1 - t, 3); // 速く出て、ゆっくり収まる
+        return e + over * Math.sin(t * Math.PI * 2) * (1 - t);
+      };
+      /** −180〜180 の最短回り */
+      const shortest = (a: number, bb: number) => {
+        let d = bb - a;
+        while (d > 180) d -= 360;
+        while (d < -180) d += 360;
+        return d;
+      };
+
       type Move = { at: number; dur: number; over: number };
       type Plan = {
         from: number[];
@@ -296,23 +344,24 @@ export function HeroObject({
       let planFrom = POSES[0].slice();
       let planIndex = 0;
 
-      const makePlan = (forceIndex?: number, calm = false): Plan => {
+      /** 行き先のポーズを選ぶ。ここでは planIndex をまだ書き換えない */
+      const pickNext = () => {
         // 畳まれた塊（0番）は作品の顔なので、3回に1回はそこへ戻す。
         // 完全な乱数だと、ほどけた形ばかりが続いて塊が出てこない。
-        let next: number;
-        if (forceIndex !== undefined) {
-          next = forceIndex;
-        } else if (planIndex !== 0 && Math.random() < 0.34) {
-          next = 0;
-        } else {
-          next = planIndex;
-          while (next === planIndex && POSES.length > 1)
-            next = Math.floor(Math.random() * POSES.length);
-        }
-        planIndex = next;
+        if (planIndex !== 0 && Math.random() < 0.34) return 0;
+        let next = planIndex;
+        while (next === planIndex && POSES.length > 1)
+          next = Math.floor(Math.random() * POSES.length);
+        return next;
+      };
 
-        // 戻すときは、ばらけた順ではなく端から順に、ゆっくり畳む。
-        // 手で一本ずつ戻していくような収まり方にする。
+      /**
+       * 動かし方を1案つくる。
+       * step が大きいほど「まとめて速く」、小さいほど「少しずつ慎重に」。
+       * めり込む案は捨てて、より慎重な案に切り替えるために段をつけてある。
+       */
+      const draftPlan = (target: number, calm: boolean, step: number): Plan => {
+        // 戻すときは、ばらけた順ではなく端から順に
         const order = calm
           ? joints.map((_, i) => i)
           : shuffle(joints.map((_, i) => i));
@@ -320,34 +369,117 @@ export function HeroObject({
         let t = 0;
         let k = 0;
         while (k < order.length) {
-          // 手でまとめて掴むように、1〜4関節を一度に動かすことがある
+          // 手でまとめて掴むように、何本かを一度に動かすことがある
           const group = calm
-            ? 3
-            : Math.random() < 0.45
-              ? Math.ceil(rnd(2, 4.99))
-              : 1;
-          const dur = calm ? 0.42 : rnd(0.22, 0.6);
+            ? [order.length, 10, 5, 1][step]
+            : [
+                Math.random() < 0.45 ? Math.ceil(rnd(2, 4.99)) : 1,
+                Math.random() < 0.3 ? 2 : 1,
+                1,
+                1,
+              ][step];
+          const dur = calm
+            ? [0.72, 0.42, 0.3, 0.12][step]
+            : [rnd(0.22, 0.6), rnd(0.3, 0.5), rnd(0.2, 0.35), rnd(0.2, 0.3)][step];
           for (let n = 0; n < group && k < order.length; n++, k++) {
             mv[order[k]] = {
-              at: t + rnd(0, 0.09), // 同時でも、わずかにずれる
-              dur: dur * rnd(0.85, 1.2),
+              // 同時でも、わずかにずれる。戻すときのずれは小さく、ひと息に見せる
+              at: t + rnd(0, calm ? 0.1 : 0.09),
+              dur: dur * (calm ? rnd(0.95, 1.08) : rnd(0.85, 1.2)),
               // 戻すときは行き過ぎさせない。すっと収める
               over: calm ? 0 : Math.random() < 0.7 ? rnd(0.04, 0.16) : 0,
             };
           }
           // 手を止める間。たまに長めに考える
-          t += dur + (calm ? 0.05 : Math.random() < 0.18 ? rnd(0.25, 0.7) : rnd(0.02, 0.14));
+          t +=
+            dur +
+            (calm
+              ? 0.05
+              : step > 0
+                ? rnd(0.02, 0.1)
+                : Math.random() < 0.18
+                  ? rnd(0.25, 0.7)
+                  : rnd(0.02, 0.14));
         }
         // 形が決まったら、そのまま止めずに、ぐるりと回して見せる
         // 戻したあとは、畳まれた姿をしばらく見せてから次へ
         const show = calm ? 7.5 : rnd(2.6, 4.4);
-        const settled = t + rnd(0.15, 0.5);
+        const settled = t + (calm ? 0.05 : rnd(0.15, 0.5));
         return {
           from: planFrom.slice(),
-          to: POSES[planIndex].slice(),
+          to: POSES[target].slice(),
           mv,
           settled,
           total: settled + show,
+        };
+      };
+
+      /**
+       * その動かし方で、途中に一度でもめり込みが起きないかを調べる。
+       *
+       * ⚠️ ポーズ（行き先）だけ当たり判定を通しても足りない。
+       *    「あいだ」でパーツが互いを通り抜けるのが、混ざって見える正体。
+       *    いちばん速く回る関節が1.2度進むごとに見る。粗いとすり抜ける。
+       */
+      const SWEEP = 1.2; // 度
+      const planIsClean = (p: Plan): boolean => {
+        let maxSpeed = 0; // 度/秒
+        let end = 0;
+        for (let i = 0; i < p.mv.length; i++) {
+          const d = Math.abs(shortest(p.from[i], p.to[i]));
+          const m = p.mv[i];
+          // settle の立ち上がりは平均の3倍ほど速い
+          maxSpeed = Math.max(maxSpeed, (d / m.dur) * 3);
+          end = Math.max(end, m.at + m.dur);
+        }
+        if (maxSpeed <= 0) return true;
+        const dt = SWEEP / maxSpeed;
+        const steps = Math.min(2000, Math.ceil(end / dt) + 1);
+        const keep = cur.slice();
+        let clean = true;
+        for (let n = 0; n <= steps; n++) {
+          const t = (end * n) / steps;
+          for (let i = 0; i < p.mv.length; i++) {
+            const m = p.mv[i];
+            cur[i] =
+              p.from[i] +
+              shortest(p.from[i], p.to[i]) * settle((t - m.at) / m.dur, m.over);
+          }
+          setPose();
+          if (hits()) {
+            clean = false;
+            break;
+          }
+        }
+        for (let i = 0; i < keep.length; i++) cur[i] = keep[i];
+        setPose();
+        return clean;
+      };
+
+      /**
+       * めり込まない動かし方が見つかるまで案を作り直す。
+       * どうしても見つからないときは動かない。
+       * 混ざって見えるくらいなら、その場に留まるほうがいい。
+       */
+      const makePlan = (forceIndex?: number, calm = false): Plan => {
+        for (let step = 0; step < 4; step++) {
+          for (let tries = 0; tries < (calm ? 6 : 4); tries++) {
+            const target = forceIndex !== undefined ? forceIndex : pickNext();
+            const p = draftPlan(target, calm, step);
+            if (planIsClean(p)) {
+              planIndex = target;
+              return p;
+            }
+          }
+        }
+        // 見つからなかった。いまの形のまま待つ
+        const mv: Move[] = joints.map(() => ({ at: 0, dur: 0.001, over: 0 }));
+        return {
+          from: cur.slice(),
+          to: cur.slice(),
+          mv,
+          settled: 0.001,
+          total: calm ? 7.5 : 3,
         };
       };
 
@@ -360,29 +492,30 @@ export function HeroObject({
         planFrom = cur.slice();
         plan = makePlan(0, true);
         legStart = performance.now() / 1000;
+        // いちばん近い正面へ。行きすぎず戻りすぎず、最短で合わせる
+        spinFrom = spinAngle;
+        spinTo = Math.round(spinAngle / TAU) * TAU;
+        spinStart = legStart;
+        spinDur = plan.settled;
       };
       resetRef.current = doReset;
-      (window as unknown as { __resetHeroForm__?: () => void }).__resetHeroForm__ =
-        doReset;
+      unregister = addResetter(doReset);
       let spinAngle = 0; // 回した角度。積み上げるだけで巻き戻さない
       const SPIN_SPEED = (Math.PI * 2) / 14; // 1周14秒。速さも向きも変えない
+      const TAU = Math.PI * 2;
+      /**
+       * 「戻す」のあいだだけ、向きも立ち上がりの角度へ寄せる。
+       *
+       * 塊は立方体に近いので、同じ形でも向きしだいで見かけの幅が17%変わる。
+       * 形だけ戻して向きを放っておくと「大きくなった」ように見える。
+       * 戻り終わりでちょうど正面（2πの倍数）に来るようにする。
+       */
+      let spinFrom = 0;
+      let spinTo = 0;
+      let spinStart = 0;
+      let spinDur = 0;
       let lastT = performance.now() / 1000;
       const start = performance.now();
-
-      /** 勢いよく出て、行き過ぎてから落ち着く */
-      const settle = (t: number, over: number) => {
-        if (t <= 0) return 0;
-        if (t >= 1) return 1;
-        const e = 1 - Math.pow(1 - t, 3); // 速く出て、ゆっくり収まる
-        return e + over * Math.sin(t * Math.PI * 2) * (1 - t);
-      };
-      /** −180〜180 の最短回り */
-      const shortest = (a: number, bb: number) => {
-        let d = bb - a;
-        while (d > 180) d -= 360;
-        while (d < -180) d += 360;
-        return d;
-      };
 
       renderer.setAnimationLoop(() => {
         const nowSec = performance.now() / 1000;
@@ -405,14 +538,26 @@ export function HeroObject({
         });
         setPose();
 
-        // 大きさが変わるので、距離を追いかける
+        // 大きさが変わるので、距離を追いかける。
+        // 戻すあいだは速く寄る。ふだんの追いかけ方だと関節が畳み終わってからも
+        // 1秒ほどカメラだけ動き続けて、「シュッと戻った」感じにならない
         const want = fitDistance();
-        curDist += (want - curDist) * 0.13;
+        curDist += (want - curDist) * (spinDur > 0 ? 0.34 : 0.13);
         place();
 
         // 真ん中を軸に、一定の速さで回し続ける。
         // 揺らぎは入れない（軸がぶれて見えるため）。
-        spinAngle += SPIN_SPEED * dt;
+        if (spinDur > 0) {
+          const k = (nowSec - spinStart) / spinDur;
+          if (k >= 1) {
+            spinAngle = spinTo;
+            spinDur = 0;
+          } else {
+            spinAngle = spinFrom + (spinTo - spinFrom) * settle(k, 0);
+          }
+        } else {
+          spinAngle += SPIN_SPEED * dt;
+        }
         pivot.rotation.y = spinAngle;
         pivot.rotation.x = 0;
         renderer.render(scene, camera);
@@ -438,6 +583,7 @@ export function HeroObject({
 
     return () => {
       disposed = true;
+      unregister?.();
       cleanup?.();
     };
   }, []);
@@ -447,19 +593,27 @@ export function HeroObject({
   return (
     <div className={className}>
       <div className="relative">
-        {/* 準備ができるまでは静止画。できたら静かに入れ替える */}
+        {/* 準備ができるまでの場つなぎ。
+            この静止画は立体そのものを焼いたもの（同じ光・同じ角度・同じ姿）。
+            別に作った絵を置くと、色も影も違うので「別のもの」が一瞬映る。
+            差し替えるときは 3D を止めて焼き直すこと。
+            重ねて薄めない（クロスフェードしない）。光の当たり方だけはわずかに
+            違うので、重ねると二重写りに見える。ほぼ同じ絵なので、切り替えは一瞬でよい。
+            枠は正方形で確保し、canvas と同じ場所・同じ大きさで重ねる。
+            影（.cutout）は付けない。立体の側に影がないので、そこで差が出る。 */}
+        <div aria-hidden className="aspect-square w-full" />
         <img
           src="/img/form-hero.webp"
           alt="つや消しの銀色をした、用途の定まらないかたち"
           decoding="async"
           data-ready={ready}
-          className="cutout w-full transition-opacity duration-1000 data-[ready=true]:opacity-0"
+          className="absolute inset-0 h-full w-full data-[ready=true]:opacity-0"
         />
         <div
           ref={holder}
           data-ready={ready}
           aria-hidden
-          className="absolute inset-0 opacity-0 transition-opacity duration-1000 data-[ready=true]:opacity-100"
+          className="absolute inset-0 opacity-0 data-[ready=true]:opacity-100"
         />
 
         {/* 押すと畳まれた塊へ戻る。
@@ -500,14 +654,12 @@ export function ResetFormButton({ className = "" }: { className?: string }) {
 
   useEffect(() => {
     // 立体の準備ができるまでボタンを出さない
-    const id = window.setInterval(() => {
-      const w = window as unknown as { __resetHeroForm__?: () => void };
-      if (w.__resetHeroForm__) {
-        setAlive(true);
-        window.clearInterval(id);
-      }
-    }, 300);
-    return () => window.clearInterval(id);
+    const sync = () => setAlive(resetters.size > 0);
+    sync();
+    watchers.add(sync);
+    return () => {
+      watchers.delete(sync);
+    };
   }, []);
 
   if (!alive) return null;
@@ -516,7 +668,8 @@ export function ResetFormButton({ className = "" }: { className?: string }) {
     <button
       type="button"
       onClick={() => {
-        (window as unknown as { __resetHeroForm__?: () => void }).__resetHeroForm__?.();
+        // 隠れているほうも一緒に戻す。どちらが見えているかはここでは決めない
+        resetters.forEach((fn) => fn());
         setResetting(true);
         window.setTimeout(() => setResetting(false), 1400);
       }}

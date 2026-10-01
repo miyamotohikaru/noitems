@@ -11,11 +11,13 @@ export function Hero() {
   return (
     <section id="top" className="relative overflow-hidden">
       {/* デスクトップ ── 紙の上に直に置く。矩形の縁をつくらない。
-          倍の大きさにすると本文の領域まで届くので、文字の“後ろ”に敷く。
-          文字は z-10 で前に出しているので読みやすさは保たれる。 */}
+          文字の“後ろ”に敷く。文字は z-10 で前に出しているので読みやすさは保たれる。
+          はみ出しは画面幅の％ではなく rem で持つ。％だと、立体を小さくしたときに
+          枠だけ右に残って、物体の右端がかえって外へ出てしまう。 */}
       <HeroObject
-        className="pointer-events-none absolute right-[-6%] top-1/2 z-0 hidden
-                   w-[min(86vw,74rem)] -translate-y-1/2 md:block"
+        className="pointer-events-none absolute top-1/2 z-0 hidden
+                   right-[3rem] 2xl:right-[7rem]
+                   w-[min(64vw,55rem)] -translate-y-1/2 md:block"
         showReset={false}
       />
 
