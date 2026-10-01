@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type * as THREE_T from "three";
 import { LOOK, applyLook } from "@/lib/sykim/look";
 import { POSES } from "@/lib/sykim/poses";
+import { makeHitTest } from "@/lib/sykim/collide";
 
 /**
  * ヒーローの立体。
@@ -159,7 +160,9 @@ export function HeroObject({
       const model = gltf.scene;
 
       // ── 素材（元ファイルの見た目をそのまま当てる）
+      // あわせて丸棒を「繋がっている順」に集める。めり込み判定がこの並びを使う
       let baseMat: THREE_T.MeshStandardMaterial | null = null;
+      const meshes: THREE_T.Mesh[] = [];
       model.traverse((o) => {
         const m = o as THREE_T.Mesh;
         if (!m.isMesh || !m.material || m.name.startsWith("seam")) return;
@@ -169,6 +172,7 @@ export function HeroObject({
         }
         m.material = baseMat!;
         (m.material as THREE_T.Material).side = THREE.FrontSide;
+        meshes.push(m);
       });
       // 繋ぎ目は本体と同じ金属味で、色だけ少し暗く
       const sd = 0.55;
@@ -192,6 +196,12 @@ export function HeroObject({
         if (/^J\d\d$/.test(o.name)) found.set(o.name, o);
       });
       const joints = [...found.keys()].sort().map((k) => found.get(k)!);
+      const hits = makeHitTest(THREE, model, meshes);
+      // 開発時だけ、外からめり込みを確かめられるようにする（本番ビルドには入らない）
+      if (process.env.NODE_ENV !== "production") {
+        const w = window as unknown as { __heroHits__?: (() => boolean)[] };
+        (w.__heroHits__ ||= []).push(hits);
+      }
 
       pivot.add(model);
 
@@ -294,6 +304,21 @@ export function HeroObject({
       //   ・勢いよく回して行き過ぎ、少し戻って落ち着く（オーバーシュート）
       //   ・ときどき数関節をまとめて動かし、ときどき手を止める
       // 部品どうしのめり込みを避けるため、行き先は当たり判定を通ったポーズのみ。
+      /** 勢いよく出て、行き過ぎてから落ち着く */
+      const settle = (t: number, over: number) => {
+        if (t <= 0) return 0;
+        if (t >= 1) return 1;
+        const e = 1 - Math.pow(1 - t, 3); // 速く出て、ゆっくり収まる
+        return e + over * Math.sin(t * Math.PI * 2) * (1 - t);
+      };
+      /** −180〜180 の最短回り */
+      const shortest = (a: number, bb: number) => {
+        let d = bb - a;
+        while (d > 180) d -= 360;
+        while (d < -180) d += 360;
+        return d;
+      };
+
       type Move = { at: number; dur: number; over: number };
       type Plan = {
         from: number[];
@@ -319,23 +344,24 @@ export function HeroObject({
       let planFrom = POSES[0].slice();
       let planIndex = 0;
 
-      const makePlan = (forceIndex?: number, calm = false): Plan => {
+      /** 行き先のポーズを選ぶ。ここでは planIndex をまだ書き換えない */
+      const pickNext = () => {
         // 畳まれた塊（0番）は作品の顔なので、3回に1回はそこへ戻す。
         // 完全な乱数だと、ほどけた形ばかりが続いて塊が出てこない。
-        let next: number;
-        if (forceIndex !== undefined) {
-          next = forceIndex;
-        } else if (planIndex !== 0 && Math.random() < 0.34) {
-          next = 0;
-        } else {
-          next = planIndex;
-          while (next === planIndex && POSES.length > 1)
-            next = Math.floor(Math.random() * POSES.length);
-        }
-        planIndex = next;
+        if (planIndex !== 0 && Math.random() < 0.34) return 0;
+        let next = planIndex;
+        while (next === planIndex && POSES.length > 1)
+          next = Math.floor(Math.random() * POSES.length);
+        return next;
+      };
 
-        // 戻すときは、ばらけた順ではなく端から順に。
-        // ただし一本ずつ待たずに、全部を一度に動かして約1秒で畳む。
+      /**
+       * 動かし方を1案つくる。
+       * step が大きいほど「まとめて速く」、小さいほど「少しずつ慎重に」。
+       * めり込む案は捨てて、より慎重な案に切り替えるために段をつけてある。
+       */
+      const draftPlan = (target: number, calm: boolean, step: number): Plan => {
+        // 戻すときは、ばらけた順ではなく端から順に
         const order = calm
           ? joints.map((_, i) => i)
           : shuffle(joints.map((_, i) => i));
@@ -343,13 +369,18 @@ export function HeroObject({
         let t = 0;
         let k = 0;
         while (k < order.length) {
-          // 手でまとめて掴むように、1〜4関節を一度に動かすことがある
+          // 手でまとめて掴むように、何本かを一度に動かすことがある
           const group = calm
-            ? order.length // 戻すときは全部いっぺんに
-            : Math.random() < 0.45
-              ? Math.ceil(rnd(2, 4.99))
-              : 1;
-          const dur = calm ? 0.72 : rnd(0.22, 0.6);
+            ? [order.length, 10, 5, 1][step]
+            : [
+                Math.random() < 0.45 ? Math.ceil(rnd(2, 4.99)) : 1,
+                Math.random() < 0.3 ? 2 : 1,
+                1,
+                1,
+              ][step];
+          const dur = calm
+            ? [0.72, 0.42, 0.3, 0.12][step]
+            : [rnd(0.22, 0.6), rnd(0.3, 0.5), rnd(0.2, 0.35), rnd(0.2, 0.3)][step];
           for (let n = 0; n < group && k < order.length; n++, k++) {
             mv[order[k]] = {
               // 同時でも、わずかにずれる。戻すときのずれは小さく、ひと息に見せる
@@ -360,7 +391,15 @@ export function HeroObject({
             };
           }
           // 手を止める間。たまに長めに考える
-          t += dur + (calm ? 0.05 : Math.random() < 0.18 ? rnd(0.25, 0.7) : rnd(0.02, 0.14));
+          t +=
+            dur +
+            (calm
+              ? 0.05
+              : step > 0
+                ? rnd(0.02, 0.1)
+                : Math.random() < 0.18
+                  ? rnd(0.25, 0.7)
+                  : rnd(0.02, 0.14));
         }
         // 形が決まったら、そのまま止めずに、ぐるりと回して見せる
         // 戻したあとは、畳まれた姿をしばらく見せてから次へ
@@ -368,10 +407,79 @@ export function HeroObject({
         const settled = t + (calm ? 0.05 : rnd(0.15, 0.5));
         return {
           from: planFrom.slice(),
-          to: POSES[planIndex].slice(),
+          to: POSES[target].slice(),
           mv,
           settled,
           total: settled + show,
+        };
+      };
+
+      /**
+       * その動かし方で、途中に一度でもめり込みが起きないかを調べる。
+       *
+       * ⚠️ ポーズ（行き先）だけ当たり判定を通しても足りない。
+       *    「あいだ」でパーツが互いを通り抜けるのが、混ざって見える正体。
+       *    いちばん速く回る関節が1.2度進むごとに見る。粗いとすり抜ける。
+       */
+      const SWEEP = 1.2; // 度
+      const planIsClean = (p: Plan): boolean => {
+        let maxSpeed = 0; // 度/秒
+        let end = 0;
+        for (let i = 0; i < p.mv.length; i++) {
+          const d = Math.abs(shortest(p.from[i], p.to[i]));
+          const m = p.mv[i];
+          // settle の立ち上がりは平均の3倍ほど速い
+          maxSpeed = Math.max(maxSpeed, (d / m.dur) * 3);
+          end = Math.max(end, m.at + m.dur);
+        }
+        if (maxSpeed <= 0) return true;
+        const dt = SWEEP / maxSpeed;
+        const steps = Math.min(2000, Math.ceil(end / dt) + 1);
+        const keep = cur.slice();
+        let clean = true;
+        for (let n = 0; n <= steps; n++) {
+          const t = (end * n) / steps;
+          for (let i = 0; i < p.mv.length; i++) {
+            const m = p.mv[i];
+            cur[i] =
+              p.from[i] +
+              shortest(p.from[i], p.to[i]) * settle((t - m.at) / m.dur, m.over);
+          }
+          setPose();
+          if (hits()) {
+            clean = false;
+            break;
+          }
+        }
+        for (let i = 0; i < keep.length; i++) cur[i] = keep[i];
+        setPose();
+        return clean;
+      };
+
+      /**
+       * めり込まない動かし方が見つかるまで案を作り直す。
+       * どうしても見つからないときは動かない。
+       * 混ざって見えるくらいなら、その場に留まるほうがいい。
+       */
+      const makePlan = (forceIndex?: number, calm = false): Plan => {
+        for (let step = 0; step < 4; step++) {
+          for (let tries = 0; tries < (calm ? 6 : 4); tries++) {
+            const target = forceIndex !== undefined ? forceIndex : pickNext();
+            const p = draftPlan(target, calm, step);
+            if (planIsClean(p)) {
+              planIndex = target;
+              return p;
+            }
+          }
+        }
+        // 見つからなかった。いまの形のまま待つ
+        const mv: Move[] = joints.map(() => ({ at: 0, dur: 0.001, over: 0 }));
+        return {
+          from: cur.slice(),
+          to: cur.slice(),
+          mv,
+          settled: 0.001,
+          total: calm ? 7.5 : 3,
         };
       };
 
@@ -408,21 +516,6 @@ export function HeroObject({
       let spinDur = 0;
       let lastT = performance.now() / 1000;
       const start = performance.now();
-
-      /** 勢いよく出て、行き過ぎてから落ち着く */
-      const settle = (t: number, over: number) => {
-        if (t <= 0) return 0;
-        if (t >= 1) return 1;
-        const e = 1 - Math.pow(1 - t, 3); // 速く出て、ゆっくり収まる
-        return e + over * Math.sin(t * Math.PI * 2) * (1 - t);
-      };
-      /** −180〜180 の最短回り */
-      const shortest = (a: number, bb: number) => {
-        let d = bb - a;
-        while (d > 180) d -= 360;
-        while (d < -180) d += 360;
-        return d;
-      };
 
       renderer.setAnimationLoop(() => {
         const nowSec = performance.now() / 1000;
