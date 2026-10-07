@@ -1,6 +1,29 @@
+"use client";
+
+import { useSyncExternalStore } from "react";
 import { hero, site } from "@/lib/lot";
 import { Bracket } from "./Bracket";
 import { HeroObject, ResetFormButton } from "./HeroObject";
+
+/**
+ * スマホ幅かどうか。
+ *
+ * ⚠️ デスクトップ用とスマホ用の立体を両方置いて CSS で隠す、という作りにしない。
+ *    隠れているほうも WebGL を抱えたまま動き続けるので、描画も計算も倍かかる。
+ *    「戻す」の窓口を取り合う不具合も、ここから出ていた。
+ */
+const QUERY = "(max-width: 767px)";
+function useIsMobile() {
+  return useSyncExternalStore(
+    (cb) => {
+      const m = window.matchMedia(QUERY);
+      m.addEventListener("change", cb);
+      return () => m.removeEventListener("change", cb);
+    },
+    () => window.matchMedia(QUERY).matches,
+    () => false, // サーバー側ではデスクトップとして組む
+  );
+}
 
 /**
  * キービジュアルのポスターと同じ組み方にする。
@@ -8,16 +31,21 @@ import { HeroObject, ResetFormButton } from "./HeroObject";
  * 写真を全面に敷くと余白の緊張が消えて、ただのDTCサイトになる。
  */
 export function Hero() {
+  const isMobile = useIsMobile();
   return (
     <section id="top" className="relative overflow-hidden">
       {/* デスクトップ ── 紙の上に直に置く。矩形の縁をつくらない。
-          倍の大きさにすると本文の領域まで届くので、文字の“後ろ”に敷く。
-          文字は z-10 で前に出しているので読みやすさは保たれる。 */}
-      <HeroObject
-        className="pointer-events-none absolute right-[-6%] top-1/2 z-0 hidden
-                   w-[min(86vw,74rem)] -translate-y-1/2 md:block"
-        showReset={false}
-      />
+          文字の“後ろ”に敷く。文字は z-10 で前に出しているので読みやすさは保たれる。
+          はみ出しは画面幅の％ではなく rem で持つ。％だと、立体を小さくしたときに
+          枠だけ右に残って、物体の右端がかえって外へ出てしまう。 */}
+      {!isMobile && (
+        <HeroObject
+          className="pointer-events-none absolute top-1/2 z-0 hidden
+                     right-[3rem] 2xl:right-[7rem]
+                     w-[min(64vw,55rem)] -translate-y-1/2 md:block"
+          showReset={false}
+        />
+      )}
 
       {/* キービジュアルの署名。明朝の縦組みでここだけ書体を変える */}
       <p
@@ -69,9 +97,11 @@ export function Hero() {
         </div>
 
         {/* モバイル ── 文字に重ねない。上下をたっぷりあけて、小さく置く */}
-        <div className="mt-4 -mb-10 flex justify-center md:hidden">
-          <HeroObject className="w-[132%] -mx-[16%]" />
-        </div>
+        {isMobile && (
+          <div className="mt-4 -mb-10 flex justify-center md:hidden">
+            <HeroObject className="w-[132%] -mx-[16%]" />
+          </div>
+        )}
       </div>
 
       {/* 下へ続くことだけを、静かに示す */}
