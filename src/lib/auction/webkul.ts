@@ -20,76 +20,137 @@ import type {
  * Webkul の Auction API に繋ぐ実装。
  *
  * 必要な環境変数（Vercel に登録する）
- *   WEBKUL_AUCTION_ENDPOINT  … 既定は https://sp-auction.webkul.com/product-auction-api
- *   WEBKUL_API_KEY           … refresh token（/api/user/refresh に渡すもの）
+ *   WEBKUL_AUCTION_ENDPOINT  … https://sp-auction.webkul.com/product-auction-api
+ *   WEBKUL_ACCESS_TOKEN      … 通信に使うトークン
+ *   WEBKUL_API_KEY           … refresh token（access token が切れたときの引き換え券）
  *   WEBKUL_AUCTION_ID        … このロットに割り当てられたオークションID
  *
- * ⚠️ 認証ヘッダの正確な書式は公開資料に無い。Bearer で通らなければ
- *    AUTH_HEADER のところだけ差し替える。
+ * 2つとも Shopify管理画面 → アプリ → Webkul Product Auction → Api Credentials
+ * の表にある。画面では20文字で切られて見えるが、文字をトリプルクリックすれば全文
+ * （86文字）がコピーできる。Actions メニューには Disable しか無い。
+ *
+ * ── 実地で確かめた仕様（2026-09-30）。公開ドキュメントと食い違う ──
+ *  - 認証は `Authorization: Bearer <access_token>`。
+ *  - POST /api/user/refresh の本体は **キャメルケース**の
+ *    `{accessToken, refreshToken}`。ドキュメントには `access_token` /
+ *    `refresh_token` と書いてあるが、それだと "Missing parameter" で弾かれる。
+ *  - 期限が切れる前に refresh を呼ぶと HTTP 405 /
+ *    `{"Message":"Access Token not expired"}` が返る。つまり refresh は
+ *    「切れてから」しか使えない。だから access token を種として持つ必要がある。
+ *  - POST /api/auctions.json（オークション作成）は何を送っても 500 を返す。
+ *    Webkul 側の不具合。オークションはアプリの画面から作ること。
  */
 
 const BASE =
   webkul.endpoint || "https://sp-auction.webkul.com/product-auction-api";
 
 /* ── トークン ───────────────────────────────────────
-   refresh token を渡して access token をもらい、期限まで使い回す */
+   環境変数の access token をそのまま使い、弾かれたときだけ refresh する。
+   「切れる前の更新」を Webkul が拒むので、先回りして更新することはできない。 */
 
-let cached: { token: string; expiresAt: number } | null = null;
+let current: string = webkul.accessToken;
+/** 同時に何本もリクエストが来ても refresh は1回で済ませる */
+let refreshing: Promise<string> | null = null;
 
-async function accessToken(): Promise<string> {
-  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+async function refreshAccessToken(): Promise<string> {
+  refreshing ??= (async () => {
+    try {
+      const res = await fetch(`${BASE}/api/user/refresh`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        // ⚠️ キャメルケース。ドキュメントのスネークケースでは通らない
+        body: JSON.stringify({
+          accessToken: current,
+          refreshToken: webkul.apiKey,
+        }),
+        cache: "no-store",
+      });
 
-  const res = await fetch(`${BASE}/api/user/refresh`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ refresh_token: webkul.apiKey }),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`webkul: refresh failed (${res.status})`);
+      const json = (await res.json().catch(() => null)) as {
+        accessToken?: string;
+        access_token?: string;
+        refreshToken?: string;
+        refresh_token?: string;
+        Message?: string;
+      } | null;
 
-  const json = (await res.json()) as {
-    access_token?: string;
-    expires_in?: number;
-  };
-  if (!json.access_token) throw new Error("webkul: no access_token in response");
+      // まだ切れていなければ今のトークンで続行してよい
+      if (json?.Message === "Access Token not expired") return current;
 
-  cached = {
-    token: json.access_token,
-    expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000,
-  };
-  return cached.token;
+      const next = json?.accessToken ?? json?.access_token;
+      if (!next) {
+        throw new Error(
+          `webkul: refresh failed (${res.status}) ${json?.Message ?? ""}`,
+        );
+      }
+
+      // refresh token が回っていたら分かるように残す。環境変数の更新が要る
+      const nextRefresh = json?.refreshToken ?? json?.refresh_token;
+      if (nextRefresh && nextRefresh !== webkul.apiKey) {
+        console.warn(
+          "[webkul] refresh token が更新された。WEBKUL_API_KEY を差し替えないと、" +
+            "次にサーバーが立ち上がったとき認証できなくなる",
+        );
+      }
+
+      current = next;
+      return current;
+    } finally {
+      refreshing = null;
+    }
+  })();
+
+  return refreshing;
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = await accessToken();
-  const res = await fetch(`${BASE}${path}`, {
+async function request(path: string, token: string, init?: RequestInit) {
+  return fetch(`${BASE}${path}`, {
     ...init,
     headers: {
-      // ここが通らなければ書式を差し替える
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
+      accept: "application/json",
       ...(init?.headers ?? {}),
     },
     cache: "no-store",
   });
+}
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  let res = await request(path, current, init);
+
+  // 期限切れとみて1度だけ更新して入れ直す
+  if (res.status === 401 || res.status === 403) {
+    const token = await refreshAccessToken();
+    res = await request(path, token, init);
+  }
+
   if (!res.ok) throw new Error(`webkul: ${path} failed (${res.status})`);
   return (await res.json()) as T;
 }
 
 /* ── 型（APIの生の形） ───────────────────────────── */
 
+/**
+ * 実際に返ってくる形（2026-10-07 に実物で確認）。
+ * ⚠️ 項目名がドキュメントの想定と違う。`maxBid` と `totalbid` はキャメルと
+ *    全小文字が混在していて、スネークケースではない。
+ * ⚠️ extend_deadline_* は**オブジェクトではなく JSON文字列**で来る。
+ */
 type RawAuction = {
-  id: string;
+  id: number | string;
+  shopify_product_id?: number | string;
+  product_title?: string;
   start_date: string;
   end_date: string;
   auction_status: string;
   reserve_price: string;
   start_price: string;
   bid_winner_amt: string | null;
-  max_bid: string | null;
-  total_bid: string | null;
-  extend_deadline_within?: { type: string; value: number };
-  extend_deadline_by?: { type: string; value: number };
+  maxBid: string | null;
+  totalbid: number | string | null;
+  extend_deadline_within?: string | { type: string; value: number };
+  extend_deadline_by?: string | { type: string; value: number };
 };
 
 type RawBidList = {
@@ -121,15 +182,35 @@ function toISO(v: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
-/** {type:"minutes", value:5} を秒に */
+/**
+ * 延長設定を秒に直す。
+ * Webkul は `"{\"type\":\"minutes\",\"value\":10}"` という**文字列**で返す。
+ * 延長を設定していないオークションは `{"type":"","value":0}` になるので、
+ * その場合はこちらの既定値を使う。
+ */
 function toSeconds(
-  v: { type: string; value: number } | undefined,
+  v: string | { type: string; value: number } | undefined | null,
   fallback: number,
 ): number {
   if (!v) return fallback;
-  const unit = v.type.toLowerCase();
+
+  let parsed: { type?: string; value?: number } | null = null;
+  if (typeof v === "string") {
+    try {
+      parsed = JSON.parse(v);
+    } catch {
+      return fallback;
+    }
+  } else {
+    parsed = v;
+  }
+
+  const unit = (parsed?.type ?? "").toLowerCase();
+  const value = Number(parsed?.value ?? 0);
+  if (!unit || !Number.isFinite(value) || value <= 0) return fallback;
+
   const mult = unit.startsWith("hour") ? 3600 : unit.startsWith("sec") ? 1 : 60;
-  return v.value * mult;
+  return value * mult;
 }
 
 /** 実名は出さない。同じ人は同じラベルになるよう頭文字だけ使う */
@@ -141,7 +222,7 @@ function label(first: string, last: string, isPublic: string, i: number): string
 
 function toState(a: RawAuction, list: RawBidList | null, viewerEmail?: string): AuctionState {
   const startPrice = num(a.start_price);
-  const currentBid = num(a.max_bid, startPrice) || startPrice;
+  const currentBid = num(a.maxBid, startPrice) || startPrice;
   const bids: Bid[] = (list?.bids ?? []).map((b, i) => ({
     id: b.id,
     amount: num(b.bid_amount),
@@ -150,6 +231,7 @@ function toState(a: RawAuction, list: RawBidList | null, viewerEmail?: string): 
     placedAt: toISO(b.bid_date),
   }));
 
+  // 実物は "Running"。終了すると "Expired" などに変わる
   const status = a.auction_status?.toLowerCase();
   const now = Date.now();
   const startsAt = toISO(a.start_date);
@@ -157,17 +239,29 @@ function toState(a: RawAuction, list: RawBidList | null, viewerEmail?: string): 
 
   return {
     lotId: LOT_ID,
+    /**
+     * ⚠️ 日付の文字列より auction_status を優先する。
+     * Webkul が返す日時はUTCではなくアプリ側のタイムゾーンで、ずれがある。
+     * 日付で判定すると、開催中のオークションが「開始前」に見えてしまう。
+     * 向こうが Running と言っているなら開催中として扱う。
+     */
     status:
-      status === "finished" || new Date(endsAt).getTime() <= now
+      status === "finished" ||
+      status === "expired" ||
+      status === "stopped"
         ? "ended"
-        : new Date(startsAt).getTime() > now
-          ? "scheduled"
-          : "live",
+        : status === "running"
+          ? "live"
+          : new Date(endsAt).getTime() <= now
+            ? "ended"
+            : new Date(startsAt).getTime() > now
+              ? "scheduled"
+              : "live",
     currentBid,
     startPrice,
     minIncrement: MIN_INCREMENT,
     maxBid: bidCeiling(currentBid),
-    bidCount: num(a.total_bid ?? list?.total_bids),
+    bidCount: num(a.totalbid != null ? String(a.totalbid) : list?.total_bids),
     startsAt,
     endsAt,
     extendWindowSec: toSeconds(a.extend_deadline_within, EXTEND_WINDOW_SEC),

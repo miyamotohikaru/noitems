@@ -60,7 +60,14 @@ export function resolveEndsAt(base: string = AUCTION_ENDS_AT): Date {
 export const webkul = {
   /** Webkul Auction アプリのエンドポイント */
   endpoint: process.env.WEBKUL_AUCTION_ENDPOINT ?? "",
+  /** Refresh Token。アクセストークンが切れたときの引き換え券 */
   apiKey: process.env.WEBKUL_API_KEY ?? "",
+  /**
+   * Access Token。実際の通信に使うのはこちら。
+   * Webkul は「まだ切れていない」トークンの更新を拒む（405 / Access Token not expired）ので、
+   * refresh だけ持っていても始められない。両方いる。
+   */
+  accessToken: process.env.WEBKUL_ACCESS_TOKEN ?? "",
   /** Webkul 側でこのロットに割り当てられる ID */
   auctionId: process.env.WEBKUL_AUCTION_ID ?? "",
 };
@@ -74,5 +81,5 @@ export const shopify = {
 
 /** Webkul の資格情報が揃っていれば本番プロバイダを使う */
 export const useWebkul = Boolean(
-  webkul.endpoint && webkul.apiKey && webkul.auctionId,
+  webkul.endpoint && webkul.accessToken && webkul.auctionId,
 );
