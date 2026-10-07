@@ -319,7 +319,8 @@ export function HeroObject({
         return d;
       };
 
-      type Move = { at: number; dur: number; over: number };
+      /** delta は「どちら回りに何度回すか」。近道が塞がっていれば遠回りを選ぶ */
+      type Move = { at: number; dur: number; over: number; delta: number };
       type Plan = {
         from: number[];
         to: number[];
@@ -356,131 +357,192 @@ export function HeroObject({
       };
 
       /**
-       * 動かし方を1案つくる。
-       * step が大きいほど「まとめて速く」、小さいほど「少しずつ慎重に」。
-       * めり込む案は捨てて、より慎重な案に切り替えるために段をつけてある。
+       * めり込みを見るきざみ（度）。
+       * これより粗いと、速く回したときに丸棒が互いをすり抜ける。
        */
-      const draftPlan = (target: number, calm: boolean, step: number): Plan => {
-        // 戻すときは、ばらけた順ではなく端から順に
-        const order = calm
-          ? joints.map((_, i) => i)
-          : shuffle(joints.map((_, i) => i));
-        const mv: Move[] = new Array(joints.length);
-        let t = 0;
-        let k = 0;
-        while (k < order.length) {
-          // 手でまとめて掴むように、何本かを一度に動かすことがある
-          const group = calm
-            ? [order.length, 10, 5, 1][step]
-            : [
-                Math.random() < 0.45 ? Math.ceil(rnd(2, 4.99)) : 1,
-                Math.random() < 0.3 ? 2 : 1,
-                1,
-                1,
-              ][step];
-          const dur = calm
-            ? [0.72, 0.42, 0.3, 0.12][step]
-            : [rnd(0.22, 0.6), rnd(0.3, 0.5), rnd(0.2, 0.35), rnd(0.2, 0.3)][step];
-          for (let n = 0; n < group && k < order.length; n++, k++) {
-            mv[order[k]] = {
-              // 同時でも、わずかにずれる。戻すときのずれは小さく、ひと息に見せる
-              at: t + rnd(0, calm ? 0.1 : 0.09),
-              dur: dur * (calm ? rnd(0.95, 1.08) : rnd(0.85, 1.2)),
-              // 戻すときは行き過ぎさせない。すっと収める
-              over: calm ? 0 : Math.random() < 0.7 ? rnd(0.04, 0.16) : 0,
-            };
-          }
-          // 手を止める間。たまに長めに考える
-          t +=
-            dur +
-            (calm
-              ? 0.05
-              : step > 0
-                ? rnd(0.02, 0.1)
-                : Math.random() < 0.18
-                  ? rnd(0.25, 0.7)
-                  : rnd(0.02, 0.14));
-        }
-        // 形が決まったら、そのまま止めずに、ぐるりと回して見せる
-        // 戻したあとは、畳まれた姿をしばらく見せてから次へ
-        const show = calm ? 7.5 : rnd(2.6, 4.4);
-        const settled = t + (calm ? 0.05 : rnd(0.15, 0.5));
-        return {
-          from: planFrom.slice(),
-          to: POSES[target].slice(),
-          mv,
-          settled,
-          total: settled + show,
-        };
+      const SWEEP = 0.7;
+      /** 1回の組み立てで判定を呼ぶ上限。重くなりすぎないための歯止め */
+      const MAX_CHECKS = 260000;
+      let checks = 0;
+
+      const applyState = (st: number[]) => {
+        for (let i = 0; i < cur.length; i++) cur[i] = st[i];
+        setPose();
       };
 
       /**
-       * その動かし方で、途中に一度でもめり込みが起きないかを調べる。
-       *
-       * ⚠️ ポーズ（行き先）だけ当たり判定を通しても足りない。
-       *    「あいだ」でパーツが互いを通り抜けるのが、混ざって見える正体。
-       *    いちばん速く回る関節が1.2度進むごとに見る。粗いとすり抜ける。
+       * 関節 i だけを delta 度ぶん回す。その途中でめり込まないか。
+       * 他の関節は st のまま。
        */
-      const SWEEP = 1.2; // 度
+      const sweepClean = (st: number[], i: number, delta: number) => {
+        const steps = Math.max(1, Math.ceil(Math.abs(delta) / SWEEP));
+        applyState(st);
+        for (let n = 1; n <= steps; n++) {
+          cur[i] = st[i] + (delta * n) / steps;
+          setPose();
+          if (++checks > MAX_CHECKS) return false;
+          if (hits()) return false;
+        }
+        return true;
+      };
+
+      /**
+       * 「どの関節を、どちら回りに、どの順で回すか」を見つける。
+       *
+       * ⚠️ 行き先のポーズが当たり判定を通っていても、そこへ至る“途中”は別物。
+       *    混ざって見えていたのは、ここを見ていなかったため。
+       *    一本ずつ順に回し、その一本ぶんの軌跡が通るものだけを採る。
+       *    近道が塞がっていれば、反対回りも試す。
+       *    順番に回すかぎり、この道筋は必ず安全。
+       */
+      const findRoute = (from: number[], to: number[]) => {
+        const st = from.slice();
+        const left: number[] = [];
+        for (let i = 0; i < to.length; i++)
+          if (Math.abs(shortest(st[i], to[i])) > 0.01) left.push(i);
+        const route: { i: number; delta: number }[] = [];
+        while (left.length) {
+          let moved = false;
+          for (const i of shuffle(left)) {
+            const d = shortest(st[i], to[i]);
+            const back = d > 0 ? d - 360 : d + 360; // 反対回り
+            for (const delta of [d, back]) {
+              if (!sweepClean(st, i, delta)) continue;
+              st[i] += delta;
+              route.push({ i, delta });
+              left.splice(left.indexOf(i), 1);
+              moved = true;
+              break;
+            }
+            if (moved) break;
+          }
+          if (!moved) return null; // どの一本も動かせない
+        }
+        return route;
+      };
+
+      /**
+       * 見つけた道筋に、見せ方（重なり・速さ・行き過ぎ）を付ける。
+       * style が小さいほど重ねて速く、大きいほど順番に慎重に。
+       * style 3 は完全に順番どおりで、道筋の安全がそのまま効く。
+       */
+      const schedule = (
+        route: { i: number; delta: number }[],
+        from: number[],
+        to: number[],
+        calm: boolean,
+        style: number,
+      ): Plan => {
+        const mv: Move[] = joints.map(() => ({
+          at: 0,
+          dur: 0.001,
+          over: 0,
+          delta: 0,
+        }));
+        let t = 0;
+        for (const r of route) {
+          const dur = calm
+            ? [0.3, 0.3, 0.26, 0.12][style]
+            : [rnd(0.26, 0.55), rnd(0.24, 0.45), rnd(0.2, 0.36), 0.16][style];
+          mv[r.i] = {
+            at: t,
+            dur,
+            // 戻すときは行き過ぎさせない。すっと収める
+            over:
+              calm || style === 3
+                ? 0
+                : Math.random() < 0.6
+                  ? rnd(0.04, 0.14)
+                  : 0,
+            delta: r.delta,
+          };
+          // 次の一本へ移るまで。負の重なりで「まとめて掴んだ」ように見せる
+          const lead = calm
+            ? [0.024, 0.05, 0.1, dur + 0.02][style]
+            : [dur * 0.35, dur * 0.6, dur * 0.85, dur + 0.02][style];
+          t += lead;
+          // たまに手を止めて考える
+          if (!calm && style < 2 && Math.random() < 0.1) t += rnd(0.2, 0.5);
+        }
+        let end = 0;
+        for (const m of mv) end = Math.max(end, m.at + m.dur);
+        // 形が決まったら、そのまま止めずに、ぐるりと回して見せる
+        const show = calm ? 7.5 : rnd(2.6, 4.4);
+        const settled = end + (calm ? 0.05 : rnd(0.15, 0.5));
+        return { from: from.slice(), to: to.slice(), mv, settled, total: settled + show };
+      };
+
+      /**
+       * 重ねた動かし方が、途中で一度でもめり込まないかを通しで確かめる。
+       * いちばん速い関節が SWEEP 度進むごとに見る。
+       */
       const planIsClean = (p: Plan): boolean => {
         let maxSpeed = 0; // 度/秒
         let end = 0;
-        for (let i = 0; i < p.mv.length; i++) {
-          const d = Math.abs(shortest(p.from[i], p.to[i]));
-          const m = p.mv[i];
-          // settle の立ち上がりは平均の3倍ほど速い
-          maxSpeed = Math.max(maxSpeed, (d / m.dur) * 3);
+        for (const m of p.mv) {
+          // settle の立ち上がりは平均の3倍。行き過ぎの揺り戻しもそのぶん速い
+          const peak = 3 + m.over * Math.PI * 2;
+          maxSpeed = Math.max(maxSpeed, (Math.abs(m.delta) / m.dur) * peak);
           end = Math.max(end, m.at + m.dur);
         }
         if (maxSpeed <= 0) return true;
-        const dt = SWEEP / maxSpeed;
-        const steps = Math.min(2000, Math.ceil(end / dt) + 1);
-        const keep = cur.slice();
-        let clean = true;
+        const steps = Math.min(
+          9000,
+          Math.ceil(end / (SWEEP / maxSpeed)) + 1,
+        );
         for (let n = 0; n <= steps; n++) {
           const t = (end * n) / steps;
           for (let i = 0; i < p.mv.length; i++) {
             const m = p.mv[i];
-            cur[i] =
-              p.from[i] +
-              shortest(p.from[i], p.to[i]) * settle((t - m.at) / m.dur, m.over);
+            cur[i] = p.from[i] + m.delta * settle((t - m.at) / m.dur, m.over);
           }
           setPose();
-          if (hits()) {
-            clean = false;
-            break;
-          }
+          if (++checks > MAX_CHECKS) return false;
+          if (hits()) return false;
         }
-        for (let i = 0; i < keep.length; i++) cur[i] = keep[i];
-        setPose();
-        return clean;
+        return true;
       };
 
+      /** 動かないでいるときの中身 */
+      const holdPlan = (calm: boolean): Plan => ({
+        from: cur.slice(),
+        to: cur.slice(),
+        mv: joints.map(() => ({ at: 0, dur: 0.001, over: 0, delta: 0 })),
+        settled: 0.001,
+        total: calm ? 7.5 : 3,
+      });
+
       /**
-       * めり込まない動かし方が見つかるまで案を作り直す。
-       * どうしても見つからないときは動かない。
-       * 混ざって見えるくらいなら、その場に留まるほうがいい。
+       * 行き先を決め、安全な道筋を見つけ、見せ方を付ける。
+       * 重ねた案がめり込むなら、だんだん順番どおりに落としていく。
+       * 最後の段（完全に順番どおり）は道筋そのものなので必ず通る。
        */
       const makePlan = (forceIndex?: number, calm = false): Plan => {
-        for (let step = 0; step < 4; step++) {
-          for (let tries = 0; tries < (calm ? 6 : 4); tries++) {
-            const target = forceIndex !== undefined ? forceIndex : pickNext();
-            const p = draftPlan(target, calm, step);
-            if (planIsClean(p)) {
-              planIndex = target;
-              return p;
+        const keep = cur.slice();
+        checks = 0;
+        try {
+          const targets =
+            forceIndex !== undefined
+              ? [forceIndex]
+              : [pickNext(), pickNext(), pickNext()];
+          for (const target of targets) {
+            const from = planFrom.slice();
+            const to = POSES[target].slice();
+            const route = findRoute(from, to);
+            if (!route) continue;
+            for (let style = 0; style < 4; style++) {
+              const p = schedule(route, from, to, calm, style);
+              // 最後の段は道筋そのものだが、ここも素通りさせずに確かめる
+              if (planIsClean(p)) {
+                planIndex = target;
+                return p;
+              }
             }
           }
+          return holdPlan(calm);
+        } finally {
+          applyState(keep);
         }
-        // 見つからなかった。いまの形のまま待つ
-        const mv: Move[] = joints.map(() => ({ at: 0, dur: 0.001, over: 0 }));
-        return {
-          from: cur.slice(),
-          to: cur.slice(),
-          mv,
-          settled: 0.001,
-          total: calm ? 7.5 : 3,
-        };
       };
 
       let plan = makePlan();
@@ -517,7 +579,24 @@ export function HeroObject({
       let lastT = performance.now() / 1000;
       const start = performance.now();
 
+      let frameNo = 0;
+      let lastLegTime = 0;
+      if (process.env.NODE_ENV !== "production") {
+        const w = window as unknown as { __heroState__?: (() => unknown)[] };
+        (w.__heroState__ ||= []).push(() => ({
+          frameNo,
+          legTime: lastLegTime,
+          total: plan.total,
+          settled: plan.settled,
+          hold: plan.mv.every((m) => m.delta === 0),
+          maxDelta: Math.max(...plan.mv.map((m) => Math.abs(m.delta))),
+          cur: cur.slice(),
+          planFrom: plan.from.slice(),
+          planTo: plan.to.slice(),
+        }));
+      }
       renderer.setAnimationLoop(() => {
+        frameNo++;
         const nowSec = performance.now() / 1000;
         const now = (performance.now() - start) / 1000;
         const dt = Math.min(0.05, nowSec - lastT);
@@ -531,10 +610,11 @@ export function HeroObject({
           legTime = 0;
         }
 
+        lastLegTime = legTime;
         joints.forEach((_, i) => {
           const m = plan.mv[i];
           const k = settle((legTime - m.at) / m.dur, m.over);
-          cur[i] = plan.from[i] + shortest(plan.from[i], plan.to[i]) * k;
+          cur[i] = plan.from[i] + m.delta * k;
         });
         setPose();
 
