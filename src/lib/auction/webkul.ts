@@ -8,6 +8,7 @@ import {
   bidCeiling,
   webkul,
 } from "./config";
+import { nicknamesFor } from "../shopify/admin";
 import type {
   AuctionProvider,
   AuctionState,
@@ -155,12 +156,15 @@ type RawAuction = {
 
 type RawBidList = {
   Auction_id: string;
-  total_bids: string;
+  total_bids: number | string;
   max_bid: string;
   bids: Array<{
-    id: string;
+    id: number | string;
     bid_amount: string;
-    is_public: string;
+    is_public: number | string;
+    /** ⚠️ これがあるおかげでニックネームと突き合わせられる */
+    shopify_customer_id: number | string;
+    email_id: string;
     first_name: string;
     last_name: string;
     bid_date: string;
@@ -213,23 +217,34 @@ function toSeconds(
   return value * mult;
 }
 
-/** 実名は出さない。同じ人は同じラベルになるよう頭文字だけ使う */
-function label(first: string, last: string, isPublic: string, i: number): string {
-  if (isPublic === "0") return `入札者 ${String(i + 1).padStart(2, "0")}`;
-  const initials = `${(first || "").charAt(0)}${(last || "").charAt(0)}`.trim();
-  return initials ? `${initials.toUpperCase()}. さん` : `入札者 ${String(i + 1).padStart(2, "0")}`;
+/**
+ * 入札記録に出す名前。
+ *
+ * 本人が決めたニックネームがあればそれを出す。無ければ連番。
+ * **Webkul が持っている本名は使わない。** 一点物の記録に実名が
+ * 並ぶのは意図と違うし、本人の同意も取っていない。
+ */
+function label(nickname: string | undefined, i: number): string {
+  return nickname ?? `入札者 ${String(i + 1).padStart(2, "0")}`;
 }
 
-function toState(a: RawAuction, list: RawBidList | null, viewerEmail?: string): AuctionState {
+function toState(
+  a: RawAuction,
+  list: RawBidList | null,
+  nicknames: Map<string, string> = new Map(),
+): AuctionState {
   const startPrice = num(a.start_price);
   const currentBid = num(a.maxBid, startPrice) || startPrice;
-  const bids: Bid[] = (list?.bids ?? []).map((b, i) => ({
-    id: b.id,
-    amount: num(b.bid_amount),
-    bidderId: `${b.first_name}${b.last_name}` || `b${i}`,
-    bidderLabel: label(b.first_name, b.last_name, b.is_public, i),
-    placedAt: toISO(b.bid_date),
-  }));
+  const bids: Bid[] = (list?.bids ?? []).map((b, i) => {
+    const customerId = String(b.shopify_customer_id ?? "");
+    return {
+      id: String(b.id),
+      amount: num(b.bid_amount),
+      bidderId: customerId || `b${i}`,
+      bidderLabel: label(nicknames.get(customerId), i),
+      placedAt: toISO(b.bid_date),
+    };
+  });
 
   // 実物は "Running"。終了すると "Expired" などに変わる
   const status = a.auction_status?.toLowerCase();
@@ -261,7 +276,9 @@ function toState(a: RawAuction, list: RawBidList | null, viewerEmail?: string): 
     startPrice,
     minIncrement: MIN_INCREMENT,
     maxBid: bidCeiling(currentBid),
-    bidCount: num(a.totalbid != null ? String(a.totalbid) : list?.total_bids),
+    bidCount: num(
+      a.totalbid != null ? String(a.totalbid) : String(list?.total_bids ?? ""),
+    ),
     startsAt,
     endsAt,
     extendWindowSec: toSeconds(a.extend_deadline_within, EXTEND_WINDOW_SEC),
@@ -274,7 +291,6 @@ function toState(a: RawAuction, list: RawBidList | null, viewerEmail?: string): 
     serverNow: new Date(now).toISOString(),
     updatedAt: new Date(now).toISOString(),
   };
-  void viewerEmail;
 }
 
 /* ── provider ──────────────────────────────────── */
@@ -300,7 +316,12 @@ export const webkulAuctionProvider: AuctionProvider = {
       // 入札がまだ無いときに落ちることがある。金額だけでも出す
     }
 
-    return toState(target, bidList);
+    // ニックネームが引けなければ空のまま。記録自体は出す
+    const nicknames = await nicknamesFor(
+      (bidList?.bids ?? []).map((b) => String(b.shopify_customer_id ?? "")),
+    );
+
+    return toState(target, bidList, nicknames);
   },
 
   async placeBid({ amount, email }: BidInput): Promise<PlaceBidResult> {

@@ -1,27 +1,38 @@
 import { NextResponse } from "next/server";
 import { auction } from "@/lib/auction";
 import type { BidErrorCode, PlaceBidResult } from "@/lib/auction/types";
+import { readSession } from "@/lib/session";
+import { canLogin } from "@/lib/shopify/config";
 
 export const dynamic = "force-dynamic";
 
 /**
  * 入札はここを通す。provider（＝APIキー）はサーバーから出さない。
  *
- * 本番で足すもの:
- *   - 顧客の認証（Shopify Customer Account のトークン検証）
- *   - レート制限
- * どちらも未実装なので、いまは誰でも入札できる。
+ * ⚠️ **メールアドレスはログイン状態（Cookie）からしか取らない。**
+ *    画面から送られてきたメールを使うと、他人のアドレスで入札できてしまう。
+ *    Webkul は「ストアに登録済みの顧客のメール」なら誰のものでも受け付けるので、
+ *    ここを緩めると なりすまし入札が成立する。
+ *
+ * まだ無いもの: レート制限。
  */
 export async function POST(request: Request) {
+  const session = await readSession();
+  if (canLogin && !session) {
+    return bad(
+      "AUTH_REQUIRED",
+      "入札するにはログインしてください。",
+      401,
+    );
+  }
+
   let amount: unknown;
   let requestId: unknown;
-  let email: unknown;
 
   try {
     const body = await request.json();
     amount = body?.amount;
     requestId = body?.requestId;
-    email = body?.email;
   } catch {
     return bad("UNKNOWN", "リクエストを読み取れませんでした。");
   }
@@ -37,7 +48,7 @@ export async function POST(request: Request) {
     const result = await auction.placeBid({
       amount: Math.floor(amount),
       requestId,
-      email: typeof email === "string" && email.length > 0 ? email : undefined,
+      email: session?.email,
     });
     return NextResponse.json(result, {
       status: result.ok ? 200 : 422,

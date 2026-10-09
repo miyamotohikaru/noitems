@@ -22,6 +22,25 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
 
   useEffect(() => setMounted(true), []);
 
+  /**
+   * ログインから戻ってきたら、入札の続きをその場で開く。
+   * 戻った先が静かなトップページだと、何が起きたのか分からないまま
+   * 離脱してしまうため。印だけ消してURLは綺麗にしておく。
+   */
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const login = url.searchParams.get("login");
+    if (!login) return;
+
+    if (login === "ok" || login === "nickname") setDialogOpen(true);
+    if (login === "failed") {
+      setAnnouncement("ログインできませんでした。もう一度お試しください。");
+    }
+
+    url.searchParams.delete("login");
+    window.history.replaceState(null, "", url.toString());
+  }, []);
+
   const offset = useServerOffset(state.serverNow);
   const { total } = useRemaining(state.endsAt, offset);
 
