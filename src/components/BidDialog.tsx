@@ -2,10 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { kanjiYen, jstDateTime, yen } from "@/lib/format";
+import { fetchViewer, postNickname, type Viewer } from "@/lib/auctionClient";
 import { nextMinimumBid, validateBid, type AuctionState } from "@/lib/auction/types";
 import type { PlaceBidResult } from "@/lib/auction/types";
 
-type Step = "input" | "confirm" | "done";
+/**
+ * 入札までの段。
+ *   signin   … ログインしていない
+ *   nickname … ログイン済みだが、記録に出す名前を決めていない
+ *   input    … 金額を入れる
+ */
+type Step = "signin" | "nickname" | "input" | "confirm" | "done";
 
 /** 最低額から 入札単位×n を足した候補 */
 const QUICK = [0, 4, 9];
@@ -26,6 +33,8 @@ export function BidDialog({
 
   const floor = nextMinimumBid(state);
   const [step, setStep] = useState<Step>("input");
+  const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [nickname, setNickname] = useState("");
   const [amount, setAmount] = useState<number | null>(floor);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,6 +56,15 @@ export function BidDialog({
       el.showModal();
       // 最初のフォーカスは閉じるボタンではなく入札額へ
       requestAnimationFrame(() => inputRef.current?.focus());
+
+      // ログインが要るかどうかは、開いてから確かめる。
+      // 先に金額欄を出しておき、必要なときだけ差し替える。
+      void fetchViewer().then((v) => {
+        setViewer(v);
+        if (!v?.available) return;
+        if (!v.signedIn) setStep("signin");
+        else if (v.needsNickname) setStep("nickname");
+      });
     } else if (!open && el.open) {
       el.close();
     }
@@ -101,6 +119,21 @@ export function BidDialog({
     }
   }
 
+  async function saveNickname(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const result = await postNickname(nickname);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.message ?? "保存できませんでした。");
+      return;
+    }
+    setViewer((v) => (v ? { ...v, nickname, needsNickname: false } : v));
+    setStep("input");
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
   const overFloorRatio = amount !== null && amount > floor * 2;
 
   return (
@@ -118,7 +151,13 @@ export function BidDialog({
     >
       <div className="flex items-start justify-between gap-4 px-6 pt-6 sm:px-9 sm:pt-8">
         <h2 id="bid-title" className="text-[1.0625rem] font-light tracking-[0.16em]">
-          {step === "done" ? "入札を受け付けました" : "入札する"}
+          {step === "done"
+            ? "入札を受け付けました"
+            : step === "signin"
+              ? "ログイン"
+              : step === "nickname"
+                ? "お名前を決める"
+                : "入札する"}
         </h2>
         <button
           type="button"
@@ -138,7 +177,84 @@ export function BidDialog({
         </button>
       </div>
 
-      {step === "done" && done ? (
+      {step === "signin" ? (
+        <div className="px-6 pb-7 sm:px-9 sm:pb-9">
+          <p className="mt-6 text-[0.875rem] leading-[1.95]">
+            入札には Shopify のログインが必要です。
+            <span className="text-ink/70">
+              　落札された方へご連絡するため、また同じ方の入札をまとめて記録するために使います。
+            </span>
+          </p>
+
+          <ul className="mt-5 space-y-2 border-y border-[var(--rule)] py-5 text-[0.8125rem] leading-[1.9] text-ink/78">
+            <li>メールアドレスに届く番号を入れるだけです。パスワードは要りません。</li>
+            <li>はじめての方も、その場でご登録になります。</li>
+            <li>お支払いの情報は、落札後のチェックアウトまでお預かりしません。</li>
+          </ul>
+
+          <a href="/api/auth/login" className="btn-solid mt-7 block w-full text-center">
+            Shopify でログイン
+          </a>
+
+          <p className="mt-4 text-[0.6875rem] leading-[1.95] text-ink/70">
+            ログインの画面は Shopify のものです。入力した内容がこのサイトを通ることはありません。
+          </p>
+        </div>
+      ) : step === "nickname" ? (
+        <form onSubmit={saveNickname} noValidate className="px-6 pb-7 sm:px-9 sm:pb-9">
+          <fieldset disabled={busy} className="contents">
+            <p className="mt-6 text-[0.875rem] leading-[1.95]">
+              入札の記録に出すお名前を決めてください。
+            </p>
+            <p className="mt-3 text-[0.8125rem] leading-[1.9] text-ink/70">
+              本名は表示されません。ここで決めた名前だけが、このページの入札記録に並びます。
+            </p>
+
+            <div className="mt-7">
+              <label htmlFor="bid-nickname" className="label-jp">
+                お名前
+              </label>
+              <input
+                id="bid-nickname"
+                value={nickname}
+                onChange={(e) => {
+                  setNickname(e.target.value);
+                  setError(null);
+                }}
+                maxLength={16}
+                autoComplete="nickname"
+                placeholder="16文字まで"
+                className="mt-3 w-full border border-[var(--rule-firm)] bg-ground-lift px-4 py-3.5
+                           text-[1rem] outline-none focus:border-ink"
+              />
+            </div>
+
+            <p className="mt-5 border-y border-[var(--rule)] py-4 text-[0.8125rem] leading-[1.9]">
+              入札記録には　
+              <span className="text-ink">{nickname.trim() || "（お名前）"}</span>
+              　と出ます。
+            </p>
+
+            {error && (
+              <p role="alert" className="mt-4 text-[0.8125rem] leading-[1.9] text-alert">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={!nickname.trim() || busy}
+              className="btn-solid mt-7 w-full"
+            >
+              {busy ? "保存しています" : "決めて入札へ進む"}
+            </button>
+
+            <p className="mt-4 text-[0.6875rem] leading-[1.95] text-ink/70">
+              あとから変えることもできます。
+            </p>
+          </fieldset>
+        </form>
+      ) : step === "done" && done ? (
         <div className="px-6 pb-7 sm:px-9 sm:pb-9">
           <p className="num mt-6 text-[2rem] font-extralight leading-none">
             {yen(done.currentBid)}
