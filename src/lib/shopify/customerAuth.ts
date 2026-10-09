@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
-import { customerAccount, shop, NICKNAME_METAFIELD } from "./config";
+import { customerAccount, shop } from "./config";
 
 /**
  * Shopify の「お客様アカウントAPI」でログインさせる。
@@ -30,10 +30,10 @@ export function authorizeUrl(opts: {
   nonce: string;
   verifier: string;
 }): string {
-  const u = new URL(`${customerAccount.authBase}/oauth/authorize`);
-  u.searchParams.set("client_id", customerAccount.clientId);
+  const u = new URL(`${customerAccount().authBase}/oauth/authorize`);
+  u.searchParams.set("client_id", customerAccount().clientId);
   u.searchParams.set("response_type", "code");
-  u.searchParams.set("redirect_uri", customerAccount.redirectUri);
+  u.searchParams.set("redirect_uri", customerAccount().redirectUri);
   u.searchParams.set("scope", SCOPE);
   u.searchParams.set("state", opts.state);
   u.searchParams.set("nonce", opts.nonce);
@@ -43,7 +43,7 @@ export function authorizeUrl(opts: {
 }
 
 export function logoutUrl(idToken: string, backTo: string): string {
-  const u = new URL(`${customerAccount.authBase}/logout`);
+  const u = new URL(`${customerAccount().authBase}/logout`);
   u.searchParams.set("id_token_hint", idToken);
   u.searchParams.set("post_logout_redirect_uri", backTo);
   return u.toString();
@@ -62,13 +62,13 @@ export async function exchangeCode(
 ): Promise<TokenResponse> {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: customerAccount.clientId,
-    redirect_uri: customerAccount.redirectUri,
+    client_id: customerAccount().clientId,
+    redirect_uri: customerAccount().redirectUri,
     code,
     code_verifier: verifier,
   });
 
-  const res = await fetch(`${customerAccount.authBase}/oauth/token`, {
+  const res = await fetch(`${customerAccount().authBase}/oauth/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
@@ -86,7 +86,7 @@ export async function exchangeCode(
 /* ── お客様アカウントAPI（GraphQL） ───────────────── */
 
 function customerApiUrl(): string {
-  return `https://shopify.com/${shop.id}/account/customer/api/2026-10/graphql`;
+  return `https://shopify.com/${shop().id}/account/customer/api/2026-10/graphql`;
 }
 
 async function customerQuery<T>(
@@ -114,27 +114,23 @@ async function customerQuery<T>(
 export type LoggedInCustomer = {
   id: string;
   email: string;
-  nickname: string | null;
 };
 
-/** ログインした本人の情報を取る */
+/** ログインした本人の情報を取る。名前は Shopify ではなく Upstash 側に持つ */
 export async function fetchMe(accessToken: string): Promise<LoggedInCustomer> {
   const data = await customerQuery<{
     customer: {
       id: string;
       emailAddress: { emailAddress: string } | null;
-      metafield: { value: string } | null;
     };
   }>(
     accessToken,
-    `query Me($ns: String!, $key: String!) {
+    `query Me {
       customer {
         id
         emailAddress { emailAddress }
-        metafield(namespace: $ns, key: $key) { value }
       }
     }`,
-    { ns: NICKNAME_METAFIELD.namespace, key: NICKNAME_METAFIELD.key },
   );
 
   const c = data.customer;
@@ -143,6 +139,5 @@ export async function fetchMe(accessToken: string): Promise<LoggedInCustomer> {
     // Webkul が返す shopify_customer_id と突き合わせるため
     id: c.id.split("/").pop() ?? c.id,
     email: c.emailAddress?.emailAddress ?? "",
-    nickname: c.metafield?.value ?? null,
   };
 }

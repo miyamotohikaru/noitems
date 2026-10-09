@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { exchangeCode, fetchMe } from "@/lib/shopify/customerAuth";
 import { sessionCookie } from "@/lib/session";
+import { nicknameOf } from "@/lib/nicknames";
 
 export const dynamic = "force-dynamic";
 
@@ -37,13 +38,16 @@ export async function GET(request: NextRequest) {
     const me = await fetchMe(token.access_token);
     if (!me.email) return back("failed");
 
+    // 2回目以降の人は、前に決めた名前をそのまま引き継ぐ
+    const nickname = await nicknameOf(me.id);
+
     const res = NextResponse.redirect(
-      new URL(me.nickname ? "/?login=ok" : "/?login=nickname", request.url),
+      new URL(nickname ? "/?login=ok" : "/?login=nickname", request.url),
     );
     const c = sessionCookie({
       customerId: me.id,
       email: me.email,
-      nickname: me.nickname,
+      nickname,
     });
     res.cookies.set(c.name, c.value, c.options);
     // 使い終わった合言葉は残さない
