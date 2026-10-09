@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/session";
-import { canLogin } from "@/lib/shopify/config";
+import { canLogin, missingKeys } from "@/lib/shopify/config";
+
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +10,11 @@ export async function GET() {
   const s = await readSession();
   return NextResponse.json(
     {
-      available: canLogin,
+      available: canLogin(),
       signedIn: Boolean(s),
       nickname: s?.nickname ?? null,
       needsNickname: Boolean(s && !s.nickname),
+      ...(canLogin() ? {} : { missing: missingKeys() }),
     },
     { headers: { "cache-control": "no-store" } },
   );

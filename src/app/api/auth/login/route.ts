@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * 偽の戻りを投げ込まれても気づけない。
  */
 export async function GET() {
-  if (!canLogin) {
+  if (!canLogin()) {
     return NextResponse.json(
       { error: "ログインの設定が未完了です。" },
       { status: 503 },
@@ -24,7 +24,18 @@ export async function GET() {
   const state = randomBytes(16).toString("base64url");
   const nonce = randomBytes(16).toString("base64url");
 
-  const res = NextResponse.redirect(authorizeUrl({ state, nonce, verifier }));
+  let target: string;
+  try {
+    target = authorizeUrl({ state, nonce, verifier });
+  } catch (error) {
+    console.error("[auth] login", error);
+    return NextResponse.json(
+      { error: "ログインの行き先を組み立てられませんでした。", detail: String(error) },
+      { status: 500 },
+    );
+  }
+
+  const res = NextResponse.redirect(target);
   const opts = {
     httpOnly: true,
     secure: true,

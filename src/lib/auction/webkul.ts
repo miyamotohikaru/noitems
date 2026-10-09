@@ -8,7 +8,7 @@ import {
   bidCeiling,
   webkul,
 } from "./config";
-import { nicknamesFor } from "../shopify/admin";
+import { nicknamesFor } from "../nicknames";
 import type {
   AuctionProvider,
   AuctionState,

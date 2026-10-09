@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cleanNickname, readSession, writeSession } from "@/lib/session";
-import { saveNickname } from "@/lib/shopify/admin";
-import { canReadNicknames, NICKNAME_MAX } from "@/lib/shopify/config";
+import { canStoreNicknames, saveNickname } from "@/lib/nicknames";
+import { NICKNAME_MAX } from "@/lib/shopify/config";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
       { status: 401 },
     );
   }
-  if (!canReadNicknames) {
+  if (!canStoreNicknames()) {
     return NextResponse.json(
       { error: "ニックネームの保存先がまだ設定されていません。" },
       { status: 503 },

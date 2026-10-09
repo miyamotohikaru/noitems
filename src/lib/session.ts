@@ -23,7 +23,7 @@ const COOKIE = "noitems_session";
 const MAX_AGE_SEC = 60 * 60 * 24 * 14;
 
 function sign(payload: string): string {
-  return createHmac("sha256", sessionSecret).update(payload).digest("base64url");
+  return createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
 }
 
 function serialize(s: Session): string {
@@ -53,7 +53,7 @@ function deserialize(raw: string): Session | null {
 }
 
 export async function readSession(): Promise<Session | null> {
-  if (!sessionSecret) return null;
+  if (!sessionSecret()) return null;
   const raw = (await cookies()).get(COOKIE)?.value;
   return raw ? deserialize(raw) : null;
 }

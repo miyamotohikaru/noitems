@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   const session = await readSession();
-  if (canLogin && !session) {
+  if (canLogin() && !session) {
     return bad(
       "AUTH_REQUIRED",
       "入札するにはログインしてください。",
