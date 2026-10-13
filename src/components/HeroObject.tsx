@@ -503,10 +503,18 @@ export function HeroObject({
         return true;
       };
 
-      /** 動かないでいるときの中身 */
-      const holdPlan = (calm: boolean): Plan => ({
-        from: cur.slice(),
-        to: cur.slice(),
+      /**
+       * 動かないでいるときの中身。
+       *
+       * ⚠️ ここで cur をそのまま掴まないこと。
+       *    道筋を探すあいだ cur は素振りで動かしている途中の姿になっている。
+       *    それを掴むと、中途半端な（＝めり込んだ）姿で固まってしまい、
+       *    次に動こうにも出発点がもう当たっているので二度と動けなくなる。
+       *    必ず「素振りに入る前の姿」を渡す。
+       */
+      const holdPlan = (calm: boolean, at: number[]): Plan => ({
+        from: at.slice(),
+        to: at.slice(),
         mv: joints.map(() => ({ at: 0, dur: 0.001, over: 0, delta: 0 })),
         settled: 0.001,
         total: calm ? 7.5 : 3,
@@ -539,7 +547,7 @@ export function HeroObject({
               }
             }
           }
-          return holdPlan(calm);
+          return holdPlan(calm, keep);
         } finally {
           applyState(keep);
         }
@@ -579,24 +587,7 @@ export function HeroObject({
       let lastT = performance.now() / 1000;
       const start = performance.now();
 
-      let frameNo = 0;
-      let lastLegTime = 0;
-      if (process.env.NODE_ENV !== "production") {
-        const w = window as unknown as { __heroState__?: (() => unknown)[] };
-        (w.__heroState__ ||= []).push(() => ({
-          frameNo,
-          legTime: lastLegTime,
-          total: plan.total,
-          settled: plan.settled,
-          hold: plan.mv.every((m) => m.delta === 0),
-          maxDelta: Math.max(...plan.mv.map((m) => Math.abs(m.delta))),
-          cur: cur.slice(),
-          planFrom: plan.from.slice(),
-          planTo: plan.to.slice(),
-        }));
-      }
       renderer.setAnimationLoop(() => {
-        frameNo++;
         const nowSec = performance.now() / 1000;
         const now = (performance.now() - start) / 1000;
         const dt = Math.min(0.05, nowSec - lastT);
@@ -610,7 +601,6 @@ export function HeroObject({
           legTime = 0;
         }
 
-        lastLegTime = legTime;
         joints.forEach((_, i) => {
           const m = plan.mv[i];
           const k = settle((legTime - m.at) / m.dur, m.over);
