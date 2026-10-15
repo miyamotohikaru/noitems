@@ -553,20 +553,124 @@ export function HeroObject({
         }
       };
 
+      /** 「戻す」で関節が畳み終わるまでの秒数 */
+      const RESET_SEC = 0.4;
+
+      /** その案で、関節が最後に動き終わる時刻 */
+      const motionEnd = (p: Plan) => {
+        let end = 0;
+        for (const m of p.mv) if (m.delta !== 0) end = Math.max(end, m.at + m.dur);
+        return end;
+      };
+      /** 案の t 秒目の姿を cur に入れる。画面に出すときと同じ式 */
+      const poseAt = (p: Plan, t: number) => {
+        for (let i = 0; i < cur.length; i++) {
+          const m = p.mv[i];
+          cur[i] = p.from[i] + m.delta * settle((t - m.at) / m.dur, m.over);
+        }
+      };
+      const isFolded = (st: number[]) =>
+        st.every((a, i) => Math.abs(shortest(a, POSES[0][i])) < 0.01);
+
+      /**
+       * 「戻す」用。全部の関節をいっせいに、RESET_SEC で畳む。
+       *
+       * めり込むかどうかは通る姿の並びだけで決まり、速さには関係しない。
+       * だから、当たり判定を通した道筋は、時間を縮めても安全なまま。
+       *   1. まず全関節を同時に動かす案を確かめる
+       *   2. 通らなければ、ふだんの慎重な道筋を探す
+       * どちらも最後に、関節が動き終わるまでを RESET_SEC に縮める。
+       * 両方とも見つからなければ null（→ 来た道を巻き戻す）。
+       */
+      const makeResetPlan = (): Plan | null => {
+        const keep = cur.slice();
+        const from = planFrom.slice();
+        const to = POSES[0].slice();
+        let p: Plan | null = null;
+        checks = 0;
+        try {
+          const together: Plan = {
+            from,
+            to,
+            mv: joints.map((_, i) => ({
+              at: 0,
+              dur: 1,
+              over: 0,
+              delta: shortest(from[i], to[i]),
+            })),
+            settled: 1,
+            total: 1,
+          };
+          if (planIsClean(together)) p = together;
+        } finally {
+          applyState(keep);
+        }
+        if (p) planIndex = 0;
+        else {
+          p = makePlan(0, true);
+          // 道筋が見つからないと、その場で待つ案が返ってくる
+          if (motionEnd(p) <= 0 && !isFolded(from)) return null;
+        }
+
+        const end = motionEnd(p);
+        if (end <= 0) return p; // もう畳まれている
+        const k = RESET_SEC / end;
+        const settled = RESET_SEC + 0.05;
+        return {
+          ...p,
+          mv: p.mv.map((m) => ({ ...m, at: m.at * k, dur: m.dur * k })),
+          settled,
+          total: settled + 7.5,
+        };
+      };
+
+      /**
+       * 畳まれた塊を出てから、いままでに通ってきた道。
+       * 「戻す」の最後の手段として、これを逆にたどる。
+       * 通った姿はどれも当たり判定を通しているので、逆向きでもめり込まない。
+       */
+      let trail: { p: Plan; t: number }[] = [];
+      /** 巻き戻しの最中だけ入る */
+      let rewind: { trail: { p: Plan; t: number }[]; len: number; start: number } | null =
+        null;
+      /** 巻き戻しの s 秒ぶん手前の姿を cur に入れる */
+      const rewindPose = (r: NonNullable<typeof rewind>, s: number) => {
+        let left = s;
+        for (let j = r.trail.length - 1; j >= 0; j--) {
+          const seg = r.trail[j];
+          if (left <= seg.t) return poseAt(seg.p, seg.t - left);
+          left -= seg.t;
+        }
+        poseAt(r.trail[0].p, 0);
+      };
+
       let plan = makePlan();
       let legStart = performance.now() / 1000;
 
       // ボタンから呼ばれる。いまの姿を起点に、畳まれた塊へ戻す。
       // デスクトップはボタンが本文側にあるので、窓口を window にも出す
       const doReset = () => {
+        if (rewind) return; // 巻き戻しの途中は、そのまま最後まで戻す
+        const nowSec = performance.now() / 1000;
+        trail.push({ p: plan, t: Math.min(nowSec - legStart, motionEnd(plan)) });
         planFrom = cur.slice();
-        plan = makePlan(0, true);
-        legStart = performance.now() / 1000;
+        const p = makeResetPlan();
+        if (p) {
+          plan = p;
+          legStart = nowSec;
+        } else {
+          const len = trail.reduce((a, seg) => a + seg.t, 0);
+          if (len <= 0) return;
+          rewind = { trail, len, start: nowSec };
+          trail = [];
+          plan = holdPlan(true, cur);
+          legStart = nowSec + RESET_SEC;
+        }
         // いちばん近い正面へ。行きすぎず戻りすぎず、最短で合わせる
         spinFrom = spinAngle;
         spinTo = Math.round(spinAngle / TAU) * TAU;
-        spinStart = legStart;
-        spinDur = plan.settled;
+        spinStart = nowSec;
+        spinDur = RESET_SEC + 0.05;
       };
       resetRef.current = doReset;
       unregister = addResetter(doReset);
@@ -594,18 +698,30 @@ export function HeroObject({
         lastT = nowSec;
         let legTime = nowSec - legStart;
 
-        if (legTime >= plan.total) {
-          planFrom = plan.to.slice();
-          plan = makePlan();
-          legStart = nowSec;
-          legTime = 0;
+        if (rewind) {
+          const k = (nowSec - rewind.start) / RESET_SEC;
+          if (k >= 1) {
+            rewindPose(rewind, rewind.len);
+            rewind = null;
+            planFrom = cur.slice();
+            planIndex = 0;
+            plan = holdPlan(true, cur);
+            legStart = nowSec;
+          } else {
+            rewindPose(rewind, rewind.len * settle(k, 0));
+          }
+        } else {
+          if (legTime >= plan.total) {
+            // 塊に戻り着いたら、そこから先の道だけを覚え直す
+            if (planIndex === 0) trail = [];
+            else trail.push({ p: plan, t: motionEnd(plan) });
+            planFrom = plan.to.slice();
+            plan = makePlan();
+            legStart = nowSec;
+            legTime = 0;
+          }
+          poseAt(plan, legTime);
         }
-
-        joints.forEach((_, i) => {
-          const m = plan.mv[i];
-          const k = settle((legTime - m.at) / m.dur, m.over);
-          cur[i] = plan.from[i] + m.delta * k;
-        });
         setPose();
 
         // 大きさが変わるので、距離を追いかける。
