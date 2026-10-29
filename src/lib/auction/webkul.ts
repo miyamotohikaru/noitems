@@ -178,10 +178,19 @@ const num = (v: string | null | undefined, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-/** Webkul は "2021-10-13 12:01:18" のUTC文字列を返す */
+/**
+ * Webkul は "2021-10-13 12:01:18" の形で、タイムゾーンを付けずに返す。
+ *
+ * ⚠️ 中身は**日本時間**（アプリの Timezone 設定）。UTC ではない。
+ *    2026-10-29 に実物で確認: 同じオークションの終了を
+ *    `/api/shop/auctions.json` は "2026-11-30 23:59:00"、
+ *    `/api/auctions/{id}.json` は "2026/11/30 14:59:00"（こちらはUTC）で返した。
+ *    UTC として読むと、カウントダウンが9時間長く出る。
+ *    ここで読んでいるのは前者の系統（入札一覧の bid_date も同じ）。
+ */
 function toISO(v: string | null | undefined): string {
   if (!v) return new Date().toISOString();
-  const iso = v.includes("T") ? v : `${v.replace(" ", "T")}Z`;
+  const iso = v.includes("T") ? v : `${v.replace(" ", "T")}+09:00`;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
