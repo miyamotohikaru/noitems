@@ -378,3 +378,44 @@ export const webkulAuctionProvider: AuctionProvider = {
     }
   },
 };
+
+/* ── 落札後の支払い ─────────────────────────────── */
+
+/** 支払いがまだの落札分。画面に出すのは variantId 以外 */
+export type UnpaidWin = {
+  auctionId: string;
+  title: string;
+  /** 支払う額（円） */
+  amount: number;
+  /** Webkul が落札のたびに作る、落札額のバリエーション */
+  variantId: string;
+};
+
+/**
+ * この顧客の、支払いがまだの落札分。
+ *
+ * `/api/shop/auctions/winning_auction/{customerId}.json` は落札が決まると数秒で出る
+ * （2026-11-05 に実物で確認）。`winners.json` と違い、支払い先のバリエーション
+ * `main_id_variant` まで入っているのでこちらを使う。
+ * 手で止めた（stop_now）オークションには落札処理が走らないので出てこない。
+ */
+export async function unpaidWinsFor(customerId: string): Promise<UnpaidWin[]> {
+  const res = await call<{
+    winning_auctions?: Array<{
+      id: number | string;
+      product_title: string;
+      is_purchased: number | string;
+      amount_to_be_paid: string;
+      main_id_variant: number | string | null;
+    }>;
+  }>(`/api/shop/auctions/winning_auction/${encodeURIComponent(customerId)}.json`);
+
+  return (res.winning_auctions ?? [])
+    .filter((a) => Number(a.is_purchased) === 0 && a.main_id_variant)
+    .map((a) => ({
+      auctionId: String(a.id),
+      title: a.product_title,
+      amount: num(a.amount_to_be_paid),
+      variantId: String(a.main_id_variant),
+    }));
+}

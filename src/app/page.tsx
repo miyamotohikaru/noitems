@@ -1,6 +1,7 @@
 import { auction } from "@/lib/auction";
 import { AuctionRoom } from "@/components/AuctionRoom";
 import { Hero } from "@/components/Hero";
+import { PaymentDrawer } from "@/components/PaymentDrawer";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
   Concept,
@@ -26,6 +27,7 @@ export default async function Page() {
   return (
     <>
       <SiteHeader />
+      <PaymentDrawer />
       <main>
         <Hero />
         {initial ? (

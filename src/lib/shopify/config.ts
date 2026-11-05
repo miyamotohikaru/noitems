@@ -37,6 +37,19 @@ export const customerAccount = () => ({
   redirectUri: env("SHOPIFY_AUTH_REDIRECT_URI"),
 });
 
+/**
+ * 落札後の支払いに使う Storefront API。
+ * Headless チャネル → Storefront API の「公開アクセストークン」。公開前提の値。
+ *
+ * ⚠️ `/cart/<variantId>:1` のリンクはストアのパスワード画面に飛ばされる。
+ *    Storefront API で作ったカートの checkoutUrl はパスワードを通らずに
+ *    支払い画面へ行ける（2026-11-05 に実物で確認）。だからこちらを使う。
+ */
+export const storefront = () => ({
+  domain: env("SHOPIFY_SHOP_DOMAIN"),
+  token: env("SHOPIFY_STOREFRONT_TOKEN"),
+});
+
 /** ログイン状態のCookieに署名する鍵 */
 export const sessionSecret = () => env("SESSION_SECRET");
 
