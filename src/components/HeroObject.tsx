@@ -327,7 +327,7 @@ export function HeroObject({
         mv: Move[];
         /** 関節が動き終わる時刻 */
         settled: number;
-        /** 見せる回転を終えて、次の形へ移る時刻 */
+        /** 間をあけ終えて、次の形へ移る時刻 */
         total: number;
 
       };
@@ -342,16 +342,13 @@ export function HeroObject({
         return x;
       };
 
-      let planFrom = POSES[0].slice();
-      let planIndex = 0;
-
-      /** 行き先のポーズを選ぶ。ここでは planIndex をまだ書き換えない */
-      const pickNext = () => {
+      /** index とは別のポーズを選ぶ */
+      const pickOther = (index: number) => {
         // 畳まれた塊（0番）は作品の顔なので、3回に1回はそこへ戻す。
         // 完全な乱数だと、ほどけた形ばかりが続いて塊が出てこない。
-        if (planIndex !== 0 && Math.random() < 0.34) return 0;
-        let next = planIndex;
-        while (next === planIndex && POSES.length > 1)
+        if (index !== 0 && Math.random() < 0.34) return 0;
+        let next = index;
+        while (next === index && POSES.length > 1)
           next = Math.floor(Math.random() * POSES.length);
         return next;
       };
@@ -466,8 +463,9 @@ export function HeroObject({
         }
         let end = 0;
         for (const m of mv) end = Math.max(end, m.at + m.dur);
-        // 形が決まったら、そのまま止めずに、ぐるりと回して見せる
-        const show = calm ? 7.5 : rnd(2.6, 4.4);
+        // 形が決まったら、次の形へ移るまで少し間をあける（そのあいだは回転だけ）。
+        // 単位はスクロールで進む「動きの秒数」
+        const show = calm ? 0 : rnd(0.5, 1.1);
         const settled = end + (calm ? 0.05 : rnd(0.15, 0.5));
         return { from: from.slice(), to: to.slice(), mv, settled, total: settled + show };
       };
@@ -504,75 +502,148 @@ export function HeroObject({
       };
 
       /**
-       * 動かないでいるときの中身。
+       * 動かないでいる区間。
        *
-       * ⚠️ ここで cur をそのまま掴まないこと。
+       * ⚠️ ここに cur をそのまま渡さないこと。
        *    道筋を探すあいだ cur は素振りで動かしている途中の姿になっている。
        *    それを掴むと、中途半端な（＝めり込んだ）姿で固まってしまい、
        *    次に動こうにも出発点がもう当たっているので二度と動けなくなる。
-       *    必ず「素振りに入る前の姿」を渡す。
+       *    必ず「素振りに入る前の姿」か、決まったポーズを渡す。
        */
-      const holdPlan = (calm: boolean, at: number[]): Plan => ({
+      const holdPlan = (at: number[], len: number): Plan => ({
         from: at.slice(),
         to: at.slice(),
         mv: joints.map(() => ({ at: 0, dur: 0.001, over: 0, delta: 0 })),
         settled: 0.001,
-        total: calm ? 7.5 : 3,
+        total: len,
       });
 
       /**
-       * 行き先を決め、安全な道筋を見つけ、見せ方を付ける。
+       * from → to の、めり込まない動かし方を作る。作れなければ null。
        * 重ねた案がめり込むなら、だんだん順番どおりに落としていく。
-       * 最後の段（完全に順番どおり）は道筋そのものなので必ず通る。
+       * 最後の段（完全に順番どおり）は道筋そのものなので、まず通る。
        */
-      const makePlan = (forceIndex?: number, calm = false): Plan => {
+      const planBetween = (
+        from: number[],
+        to: number[],
+        calm = false,
+      ): Plan | null => {
         const keep = cur.slice();
         checks = 0;
         try {
-          const targets =
-            forceIndex !== undefined
-              ? [forceIndex]
-              : [pickNext(), pickNext(), pickNext()];
-          for (const target of targets) {
-            const from = planFrom.slice();
-            const to = POSES[target].slice();
-            const route = findRoute(from, to);
-            if (!route) continue;
-            for (let style = 0; style < 4; style++) {
-              const p = schedule(route, from, to, calm, style);
-              // 最後の段は道筋そのものだが、ここも素通りさせずに確かめる
-              if (planIsClean(p)) {
-                planIndex = target;
-                return p;
-              }
-            }
+          const route = findRoute(from, to);
+          if (!route) return null;
+          for (let style = 0; style < 4; style++) {
+            const p = schedule(route, from, to, calm, style);
+            // 最後の段は道筋そのものだが、ここも素通りさせずに確かめる
+            if (planIsClean(p)) return p;
           }
-          return holdPlan(calm, keep);
+          return null;
         } finally {
           applyState(keep);
         }
       };
 
-      let plan = makePlan();
-      let legStart = performance.now() / 1000;
+      /**
+       * 関節の動きは、時間ではなくスクロールで進める。
+       *
+       * スクロール量から「動きの時刻」motion（秒）を出し、
+       * 形の移り変わりを一本の帯（legs）として並べておいて、
+       * motion が帯のどこにいるかで姿を決める。
+       *   ・スクロールを止めれば motion も止まる＝何も動かない
+       *   ・上へ戻れば同じ帯を逆にたどる＝同じ動きの逆再生
+       *     （行きでめり込まないと確かめた道筋を戻るだけなので、戻りも安全）
+       * 帯は、必要になる少し手前で前にも後ろにも継ぎ足す。
+       */
+      type Leg = { start: number; plan: Plan; fromIndex: number; toIndex: number };
+      const MOTION_PER_SCREEN = 2; // 画面の高さ1つぶんで進む「動きの秒数」
+      const motionTarget = () =>
+        (window.scrollY / Math.max(1, window.innerHeight)) * MOTION_PER_SCREEN;
+      const legEnd = (l: Leg) => l.start + l.plan.total;
+      const legs: Leg[] = [];
+      /** motion の位置に、畳まれた塊を置く。触れた瞬間にはほどけないよう、少し前後に幅をとる */
+      const anchor = (v: number) => {
+        legs.length = 0;
+        legs.push({ start: v - 0.6, plan: holdPlan(POSES[0], 1.2), fromIndex: 0, toIndex: 0 });
+      };
+      const extendForward = () => {
+        const last = legs[legs.length - 1];
+        for (let n = 0; n < 3; n++) {
+          const t = pickOther(last.toIndex);
+          const p = planBetween(last.plan.to, POSES[t]);
+          if (p) {
+            legs.push({ start: legEnd(last), plan: p, fromIndex: last.toIndex, toIndex: t });
+            return;
+          }
+        }
+        legs.push({
+          start: legEnd(last),
+          plan: holdPlan(last.plan.to, 1),
+          fromIndex: last.toIndex,
+          toIndex: last.toIndex,
+        });
+      };
+      /** 先頭の手前に「どこかの形 → 先頭の形」を足す。逆にたどれば先頭からそこへほどける */
+      const extendBackward = () => {
+        const first = legs[0];
+        for (let n = 0; n < 3; n++) {
+          const s = pickOther(first.fromIndex);
+          const p = planBetween(POSES[s], first.plan.from);
+          if (p) {
+            legs.unshift({ start: first.start - p.total, plan: p, fromIndex: s, toIndex: first.fromIndex });
+            return;
+          }
+        }
+        legs.unshift({
+          start: first.start - 1,
+          plan: holdPlan(first.plan.from, 1),
+          fromIndex: first.fromIndex,
+          toIndex: first.fromIndex,
+        });
+      };
+      const playPlan = (p: Plan, lt: number) => {
+        joints.forEach((_, i) => {
+          const m = p.mv[i];
+          cur[i] = p.from[i] + m.delta * settle((lt - m.at) / m.dur, m.over);
+        });
+        setPose();
+      };
+      const poseAt = (v: number) => {
+        // 帯の継ぎ足しは重いので、1フレームに1本まで。
+        // 上端（スクロール0）より手前は見られないので、そこまでは足さない
+        if (legEnd(legs[legs.length - 1]) < v + 3) extendForward();
+        else if (legs[0].start > Math.max(v - 3, 0)) extendBackward();
+        let leg = legs[0];
+        for (const l of legs) {
+          if (l.start <= v) leg = l;
+          else break;
+        }
+        // 用意が追いつかないときは、帯の端の姿で待つ
+        playPlan(leg.plan, Math.min(Math.max(v - leg.start, 0), leg.plan.total));
+      };
+
+      let motion = motionTarget();
+      anchor(motion);
+
+      /** 「戻す」だけは、スクロールを待たずに時間で動かす */
+      let resetLeg: { plan: Plan; t0: number } | null = null;
 
       // ボタンから呼ばれる。いまの姿を起点に、畳まれた塊へ戻す。
-      // デスクトップはボタンが本文側にあるので、窓口を window にも出す
+      // 戻し終わったら、その位置を新しい起点にして帯を張り直す
       const doReset = () => {
-        planFrom = cur.slice();
-        plan = makePlan(0, true);
-        legStart = performance.now() / 1000;
+        const p = planBetween(cur.slice(), POSES[0], true);
+        if (!p) return;
+        resetLeg = { plan: p, t0: performance.now() / 1000 };
         // いちばん近い正面へ。行きすぎず戻りすぎず、最短で合わせる。
-        // 見えている向きは「自転＋スクロールぶん」なので、その合計が正面に来るようにする
+        // 見えている向きは「戻しの角度＋スクロールぶん」なので、その合計が正面に来るようにする
         spinFrom = spinAngle;
         spinTo = Math.round((spinAngle + scrollAngle) / TAU) * TAU - scrollAngle;
-        spinStart = legStart;
-        spinDur = plan.settled;
+        spinStart = resetLeg.t0;
+        spinDur = p.settled;
       };
       resetRef.current = doReset;
       unregister = addResetter(doReset);
-      let spinAngle = 0; // 回した角度。積み上げるだけで巻き戻さない
-      const SPIN_SPEED = (Math.PI * 2) / 14; // 1周14秒。速さも向きも変えない
+      let spinAngle = 0; // 「戻す」で向きを合わせたぶん。ふだんは動かさない
       const TAU = Math.PI * 2;
       /**
        * 「戻す」のあいだだけ、向きも立ち上がりの角度へ寄せる。
@@ -590,36 +661,35 @@ export function HeroObject({
        * スクロールした量だけ回す（isnome.com の背景を参考に）。
        * 画面の高さぶん下へ送ると、0.4周。上へ戻せば逆に回って戻る。
        * （1周だと、スクロールに対して一つひとつの動きが速すぎた）
-       * 指やホイールの刻みでカクつかないよう、目標の角度へなめらかに追いかける。
-       * 自転とは別に持ち、表示するときに足す。
+       * スクロールしていないときは回さない（自転はしない）。
        */
       const SCROLL_TURN = TAU * 0.4; // 画面の高さ1つぶんで回る角度
       const scrollTarget = () =>
         (window.scrollY / Math.max(1, window.innerHeight)) * SCROLL_TURN;
       let scrollAngle = scrollTarget();
       let lastT = performance.now() / 1000;
-      const start = performance.now();
 
       renderer.setAnimationLoop(() => {
         const nowSec = performance.now() / 1000;
-        const now = (performance.now() - start) / 1000;
         const dt = Math.min(0.05, nowSec - lastT);
         lastT = nowSec;
-        let legTime = nowSec - legStart;
 
-        if (legTime >= plan.total) {
-          planFrom = plan.to.slice();
-          plan = makePlan();
-          legStart = nowSec;
-          legTime = 0;
+        // 回転も関節も、スクロールに少し遅れて追いつく（約0.4秒で8割）。
+        // 指やホイールの刻みでカクつかず、止めたあとは惰性で落ち着いて止まる
+        const k = 1 - Math.exp(-dt * 4);
+        motion += (motionTarget() - motion) * k;
+        scrollAngle += (scrollTarget() - scrollAngle) * k;
+
+        if (resetLeg) {
+          const lt = nowSec - resetLeg.t0;
+          playPlan(resetLeg.plan, lt);
+          if (lt >= resetLeg.plan.total) {
+            resetLeg = null;
+            anchor(motion);
+          }
+        } else {
+          poseAt(motion);
         }
-
-        joints.forEach((_, i) => {
-          const m = plan.mv[i];
-          const k = settle((legTime - m.at) / m.dur, m.over);
-          cur[i] = plan.from[i] + m.delta * k;
-        });
-        setPose();
 
         // 大きさが変わるので、距離を追いかける。
         // 戻すあいだは速く寄る。ふだんの追いかけ方だと関節が畳み終わってからも
@@ -628,23 +698,16 @@ export function HeroObject({
         curDist += (want - curDist) * (spinDur > 0 ? 0.34 : 0.13);
         place();
 
-        // 真ん中を軸に、一定の速さで回し続ける。
-        // 揺らぎは入れない（軸がぶれて見えるため）。
+        // 真ん中を軸に回す。揺らぎは入れない（軸がぶれて見えるため）。
         if (spinDur > 0) {
-          const k = (nowSec - spinStart) / spinDur;
-          if (k >= 1) {
+          const s = (nowSec - spinStart) / spinDur;
+          if (s >= 1) {
             spinAngle = spinTo;
             spinDur = 0;
           } else {
-            spinAngle = spinFrom + (spinTo - spinFrom) * settle(k, 0);
+            spinAngle = spinFrom + (spinTo - spinFrom) * settle(s, 0);
           }
-        } else {
-          spinAngle += SPIN_SPEED * dt;
         }
-        // スクロールぶんは、離れているほど速く寄る（約0.4秒で8割）。
-        // 止めたあとも少し惰性で回り、ゆっくり落ち着く
-        scrollAngle +=
-          (scrollTarget() - scrollAngle) * (1 - Math.exp(-dt * 4));
         pivot.rotation.y = spinAngle + scrollAngle;
         pivot.rotation.x = 0;
         renderer.render(scene, camera);
