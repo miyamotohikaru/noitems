@@ -1,4 +1,5 @@
 import { auction } from "@/lib/auction";
+import { readSession } from "@/lib/session";
 import { AuctionRoom } from "@/components/AuctionRoom";
 import { Hero } from "@/components/Hero";
 import { PaymentDrawer } from "@/components/PaymentDrawer";
@@ -18,7 +19,10 @@ export const dynamic = "force-dynamic";
 export default async function Page() {
   let initial = null;
   try {
-    initial = await auction.load();
+    const session = await readSession();
+    initial = await auction.load(
+      session ? { customerId: session.customerId } : null,
+    );
   } catch (error) {
     // オークションが落ちていても、作品のページ自体は必ず出す
     console.error("[page] auction.load failed", error);
