@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 // 実体は動的に読み込む。型だけ静的に借りる
 import type * as THREE_T from "three";
-import { LOOK, applyLook } from "@/lib/sykim/look";
+import { LOOK } from "@/lib/sykim/look";
+import { makeGrainMaterial } from "@/lib/sykim/grain";
 import { POSES } from "@/lib/sykim/poses";
 import { makeHitTest } from "@/lib/sykim/collide";
 
@@ -159,35 +160,25 @@ export function HeroObject({
       }
       const model = gltf.scene;
 
-      // ── 素材（元ファイルの見た目をそのまま当てる）
+      // ── 素材: 黒い地に白い粒が浮く質感（lib/sykim/grain.ts）。
+      // 銀色の金属（lib/sykim/look.ts の applyLook）から 2026-11-06 に差し替えた。
       // あわせて丸棒を「繋がっている順」に集める。めり込み判定がこの並びを使う
-      let baseMat: THREE_T.MeshStandardMaterial | null = null;
+      const grainMat = makeGrainMaterial(THREE);
+      // 継ぎ目は輪が少し張り出していて、光を当てると明るい線になる。
+      // 参考の見た目では部品の境目は暗い溝なので、光を当てずに地の黒で塗る
+      const seamMat = makeGrainMaterial(THREE, { key: 0, fill: 0, rim: 0 });
       const meshes: THREE_T.Mesh[] = [];
       model.traverse((o) => {
         const m = o as THREE_T.Mesh;
-        if (!m.isMesh || !m.material || m.name.startsWith("seam")) return;
-        if (!baseMat) {
-          baseMat = m.material as THREE_T.MeshStandardMaterial;
-          applyLook(THREE, baseMat, L);
+        if (!m.isMesh || !m.material) return;
+        // 部品の継ぎ目も本体と同じ素材にして、線として見せない。
+        // ⚠️ 隠さないこと。継ぎ目は部品のすき間を埋めていて、隠すと地が透けて線になる
+        if (m.name.startsWith("seam")) {
+          m.material = seamMat;
+          return;
         }
-        m.material = baseMat!;
-        (m.material as THREE_T.Material).side = THREE.FrontSide;
+        m.material = grainMat;
         meshes.push(m);
-      });
-      // 繋ぎ目は本体と同じ金属味で、色だけ少し暗く
-      const sd = 0.55;
-      const b = L.mat.base;
-      const done = new Set<string>();
-      model.traverse((o) => {
-        const m = o as THREE_T.Mesh;
-        if (!(m.isMesh && m.name.startsWith("seam"))) return;
-        const sm = m.material as THREE_T.MeshStandardMaterial;
-        if (done.has(sm.uuid)) return;
-        done.add(sm.uuid);
-        sm.color.setRGB(b[0] * sd, b[1] * sd, b[2] * sd, THREE.LinearSRGBColorSpace);
-        sm.metalness = L.mat.metallic;
-        sm.roughness = (L.mat.rough_min + L.mat.rough_max) / 2;
-        sm.needsUpdate = true;
       });
 
       // 関節を J00〜J29 の順に集める
@@ -561,10 +552,11 @@ export function HeroObject({
         (window.scrollY / Math.max(1, window.innerHeight)) * MOTION_PER_SCREEN;
       const legEnd = (l: Leg) => l.start + l.plan.total;
       const legs: Leg[] = [];
-      /** motion の位置に、畳まれた塊を置く。触れた瞬間にはほどけないよう、少し前後に幅をとる */
+      /** motion の位置に、畳まれた塊を置く */
       const anchor = (v: number) => {
         legs.length = 0;
-        legs.push({ start: v - 0.6, plan: holdPlan(POSES[0], 1.2), fromIndex: 0, toIndex: 0 });
+        // 待ちは手前側にだけ置く。下へのスクロールでは、最初のひと送りから関節も動く
+        legs.push({ start: v - 0.6, plan: holdPlan(POSES[0], 0.6), fromIndex: 0, toIndex: 0 });
       };
       const extendForward = () => {
         const last = legs[legs.length - 1];
@@ -713,6 +705,15 @@ export function HeroObject({
         renderer.render(scene, camera);
       });
 
+      // 開発時だけ、場つなぎの静止画（public/img/form-hero.webp）を焼き直す口を出す。
+      // ページの一番上で呼ぶと、開いた瞬間と同じ姿・同じ向きの絵が透過PNGで返る
+      if (process.env.NODE_ENV !== "production") {
+        (window as unknown as { __heroSnap__?: () => string }).__heroSnap__ = () => {
+          renderer.render(scene, camera);
+          return renderer.domElement.toDataURL("image/png");
+        };
+      }
+
       setReady(true);
       cleanup = () => {
         resetRef.current = null;
@@ -754,7 +755,7 @@ export function HeroObject({
         <div aria-hidden className="aspect-square w-full" />
         <img
           src="/img/form-hero.webp"
-          alt="つや消しの銀色をした、用途の定まらないかたち"
+          alt="黒い地に白い粒が浮かぶ、用途の定まらないかたち"
           decoding="async"
           data-ready={ready}
           className="absolute inset-0 h-full w-full data-[ready=true]:opacity-0"
