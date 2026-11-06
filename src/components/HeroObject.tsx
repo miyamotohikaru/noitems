@@ -588,11 +588,12 @@ export function HeroObject({
 
       /**
        * スクロールした量だけ回す（isnome.com の背景を参考に）。
-       * 画面の高さぶん下へ送ると、ちょうど1周。上へ戻せば逆に回って戻る。
+       * 画面の高さぶん下へ送ると、0.4周。上へ戻せば逆に回って戻る。
+       * （1周だと、スクロールに対して一つひとつの動きが速すぎた）
        * 指やホイールの刻みでカクつかないよう、目標の角度へなめらかに追いかける。
        * 自転とは別に持ち、表示するときに足す。
        */
-      const SCROLL_TURN = TAU; // 画面の高さ1つぶんで回る角度
+      const SCROLL_TURN = TAU * 0.4; // 画面の高さ1つぶんで回る角度
       const scrollTarget = () =>
         (window.scrollY / Math.max(1, window.innerHeight)) * SCROLL_TURN;
       let scrollAngle = scrollTarget();
@@ -640,9 +641,10 @@ export function HeroObject({
         } else {
           spinAngle += SPIN_SPEED * dt;
         }
-        // スクロールぶんは、離れているほど速く寄る（約0.15秒で8割）
+        // スクロールぶんは、離れているほど速く寄る（約0.4秒で8割）。
+        // 止めたあとも少し惰性で回り、ゆっくり落ち着く
         scrollAngle +=
-          (scrollTarget() - scrollAngle) * (1 - Math.exp(-dt * 10));
+          (scrollTarget() - scrollAngle) * (1 - Math.exp(-dt * 4));
         pivot.rotation.y = spinAngle + scrollAngle;
         pivot.rotation.x = 0;
         renderer.render(scene, camera);

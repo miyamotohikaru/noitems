@@ -124,7 +124,7 @@ export function Hero() {
       <section
         id="top"
         ref={sectionRef}
-        className="relative h-[200svh] md:h-[260svh]"
+        className="relative h-[260svh] md:h-[340svh]"
       >
         <div
           ref={stageRef}
