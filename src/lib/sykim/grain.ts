@@ -17,20 +17,24 @@ export const GRAIN = {
   dark: [0.12, 0.12, 0.125],
   /** 粒の白 */
   light: [0.93, 0.93, 0.94],
-  /** 主光: 右下手前から（カメラから見た向き。x=右, y=上, z=手前） */
-  keyDir: [0.55, -0.6, 0.6],
-  key: 1.0,
+  /** 主光: 下手前から少し右寄り（カメラから見た向き。x=右, y=上, z=手前）。上の面は暗く残す */
+  keyDir: [0.3, -0.78, 0.55],
+  key: 0.6,
   /** 補助光: 左から弱く */
   fillDir: [-0.85, -0.1, 0.35],
-  fill: 0.2,
-  /** 縁の光（輪郭が白く抜ける） */
-  rim: 0.35,
+  fill: 0.12,
+  /** 縁の光（下向きの輪郭だけ白く抜ける） */
+  rim: 1.25,
   /** どこにも光が当たらない面の明るさ */
   ambient: 0.0,
   /** 粒の大きさ（画面の画素数） */
   grainPx: 1,
-  /** 粒にならない、なめらかな明るさの割合。0 で粒だけ、1 で粒なし */
-  smooth: 0.35,
+  /** 粒の混ぜ具合。0 でなめらかな濃淡だけ、1 で粒だけ */
+  smooth: 0.5,
+  /** 暗い面にも残す粒の割合（炭のような手触り） */
+  floor: 0.0,
+  /** 一番明るいところでも粒にならずに残す割合（白一色の板にしない） */
+  cap: 0.96,
 };
 
 export function makeGrainMaterial(
@@ -54,7 +58,11 @@ export function makeGrainMaterial(
       uAmb: { value: g.ambient },
       uGrainPx: { value: g.grainPx },
       uSmooth: { value: g.smooth },
+      uFloor: { value: g.floor },
+      uCap: { value: g.cap },
     },
+    // 裏面も描く。部品のすき間から地が透けて白い点になるのを、暗い内側で埋める
+    side: THREE.DoubleSide,
     vertexShader: /* glsl */ `
       varying vec3 vN;
       varying vec3 vP;
@@ -67,7 +75,7 @@ export function makeGrainMaterial(
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uDark, uLight, uKeyDir, uFillDir;
-      uniform float uKey, uFill, uRim, uAmb, uGrainPx, uSmooth;
+      uniform float uKey, uFill, uRim, uAmb, uGrainPx, uSmooth, uFloor, uCap;
       varying vec3 vN;
       varying vec3 vP;
       // 画素ごとの乱数。粗い式だと粒が格子状に並んで見えるので、偏りの少ない式を使う
@@ -77,24 +85,35 @@ export function makeGrainMaterial(
         return fract((p3.x + p3.y) * p3.z);
       }
       void main() {
+        // 裏面（すき間から見える内側）は暗く塗るだけ
+        if (!gl_FrontFacing) {
+          gl_FragColor = vec4(uDark * 0.6, 1.0);
+          return;
+        }
         vec3 n = normalize(vN);
-        if (!gl_FrontFacing) n = -n;
         vec3 v = normalize(-vP);
         // やわらかく回り込む光（真横でもわずかに残す）
         float key = clamp((dot(n, uKeyDir) + 0.15) / 1.15, 0.0, 1.0);
         float fill = clamp((dot(n, uFillDir) + 0.1) / 1.1, 0.0, 1.0);
-        float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 3.0);
-        // 主光は狭く絞る。広く当てると白い面が地のベージュに溶ける
+        // 白い光は輪郭に沿って出す。下向きの輪郭ほど強く、上の縁には出さない
+        // （上や横の縁に当てると、部品の端が明るい輪になる）
+        float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 2.2)
+                  * clamp(-n.y * 1.2 + 0.35, 0.0, 1.0);
         float I = uAmb + uKey * key * key + uFill * fill + uRim * rim;
         I = clamp(I, 0.0, 1.0);
 
-        // 明るさを、白い粒が出る確率にする。画素ごとに固定の乱数と比べる
-        float r = hash(floor(gl_FragCoord.xy / uGrainPx));
-        float p = smoothstep(0.1, 1.0, I);
-        float dotOn = step(r, p * p * (3.0 - 2.0 * p));
-
-        vec3 base = mix(uDark, uLight, I * uSmooth);
-        vec3 col = mix(base, uLight, dotOn * (1.0 - uSmooth));
+        vec2 cell = floor(gl_FragCoord.xy / uGrainPx);
+        float r = hash(cell);
+        float p = smoothstep(0.0, 1.0, I);
+        // なめらかな濃淡
+        vec3 shade = mix(uDark, uLight, p);
+        // 同じ明るさを、白い粒の出る確率に置き換えたもの（明るいところも埋めきらない）
+        float dotOn = step(r, uFloor + (uCap - uFloor) * p);
+        vec3 dither = mix(uDark, uLight, dotOn);
+        // 2つを混ぜる。粒だけだと塩をまいたように粗く、濃淡だけだとただのCGになる
+        vec3 col = mix(shade, dither, uSmooth);
+        // 炭のような手触り。暗い面にも細かなざらつきを薄く乗せる
+        col += (hash(cell + 71.3) - 0.5) * 0.07;
         gl_FragColor = vec4(col, 1.0);
       }
     `,

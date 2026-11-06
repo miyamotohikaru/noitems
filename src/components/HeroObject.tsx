@@ -164,9 +164,9 @@ export function HeroObject({
       // 銀色の金属（lib/sykim/look.ts の applyLook）から 2026-11-06 に差し替えた。
       // あわせて丸棒を「繋がっている順」に集める。めり込み判定がこの並びを使う
       const grainMat = makeGrainMaterial(THREE);
-      // 継ぎ目は輪が少し張り出していて、光を当てると明るい線になる。
-      // 参考の見た目では部品の境目は暗い溝なので、光を当てずに地の黒で塗る
-      const seamMat = makeGrainMaterial(THREE, { key: 0, fill: 0, rim: 0 });
+      // 継ぎ目は輪が少し張り出している。縁の光を当てると明るい線、
+      // 光を消すと黒い帯になる。本体と同じ光で、縁の光だけ外して馴染ませる
+      const seamMat = makeGrainMaterial(THREE, { rim: 0 });
       const meshes: THREE_T.Mesh[] = [];
       model.traverse((o) => {
         const m = o as THREE_T.Mesh;
