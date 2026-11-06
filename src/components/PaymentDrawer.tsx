@@ -4,6 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { fetchWins, startCheckout, type Win } from "@/lib/auctionClient";
 import { kanjiYen, yen } from "@/lib/format";
 
+/** 落札した画面から、このパネルを開くための合図 */
+export const PAY_EVENT = "noitems:pay";
+
+/** 支払いのパネルを開く（落札者でなければ何も起きない） */
+export function openPayment() {
+  window.dispatchEvent(new Event(PAY_EVENT));
+}
+
 /**
  * 落札したあとの支払い。
  *
@@ -29,6 +37,27 @@ export function PaymentDrawer() {
       return;
     }
     void fetchWins().then(setWins);
+  }, []);
+
+  // 落札が決まった画面から呼ばれる。Webkul が落札を確定させるまで数秒かかるので、少し待ちながら取り直す
+  useEffect(() => {
+    let cancelled = false;
+    async function onPay() {
+      for (let i = 0; i < 8 && !cancelled; i++) {
+        const next = await fetchWins();
+        if (next.length > 0) {
+          setWins(next);
+          setOpen(true);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 2_000));
+      }
+    }
+    window.addEventListener(PAY_EVENT, onPay);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(PAY_EVENT, onPay);
+    };
   }, []);
 
   useEffect(() => {

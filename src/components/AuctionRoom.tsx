@@ -10,6 +10,7 @@ import { tradeTerms } from "@/lib/tradeTerms";
 import { Bracket } from "./Bracket";
 import { BidDialog } from "./BidDialog";
 import { Countdown, coarseRemaining, useRemaining, useServerOffset } from "./Countdown";
+import { openPayment } from "./PaymentDrawer";
 
 export function AuctionRoom({ initial }: { initial: AuctionState }) {
   const [state, setState] = useState(initial);
@@ -126,6 +127,15 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
     return result;
   }, []);
 
+  // 落札が決まったら、そのまま次の画面で支払いへ。終了の瞬間に一度だけ開く
+  const won = ended && state.viewer.isHighest;
+  const payOpened = useRef(false);
+  useEffect(() => {
+    if (!mounted || !won || payOpened.current) return;
+    payOpened.current = true;
+    openPayment();
+  }, [mounted, won]);
+
   const outbid =
     !ended && state.viewer.myMaxBid !== null && !state.viewer.isHighest;
   const visibleBids = showAllBids ? state.bids : state.bids.slice(0, 5);
@@ -235,6 +245,10 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
               <a href={auctionPageUrl} className="btn-solid w-full">
                 入札ページへ進む
               </a>
+            ) : won ? (
+              <button type="button" onClick={openPayment} className="btn-solid w-full">
+                落札しました ─ お支払いへ進む
+              </button>
             ) : ended ? (
               <p className="bg-ink px-[clamp(1.5rem,4vw,3.5rem)] py-5 text-[0.875rem] tracking-[0.14em] text-ground-lift">
                 オークションは終了しました

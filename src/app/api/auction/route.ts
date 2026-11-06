@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { auction } from "@/lib/auction";
+import { readSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 /** 現在の状態を返す。タブに戻ったとき・終了した瞬間・定期の取り直しで叩かれる */
 export async function GET() {
   try {
-    const state = await auction.load();
+    // ログインしていれば本人目線（最高額か・自分の入札）で返す
+    const session = await readSession();
+    const state = await auction.load(
+      session ? { customerId: session.customerId } : null,
+    );
     return NextResponse.json(state, {
       headers: { "cache-control": "no-store" },
     });
