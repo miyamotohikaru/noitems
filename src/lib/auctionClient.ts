@@ -82,3 +82,37 @@ export async function postNickname(
     return { ok: false, message: "通信に失敗しました。" };
   }
 }
+
+/* ── 落札後の支払い ─────────────────────────────── */
+
+export type Win = { auctionId: string; title: string; amount: number };
+
+/** ログイン中の人の、支払いがまだの落札分。ログインしていなければ空 */
+export async function fetchWins(): Promise<Win[]> {
+  try {
+    const res = await fetch("/api/checkout", { cache: "no-store" });
+    if (!res.ok) return [];
+    return ((await res.json()) as { wins?: Win[] }).wins ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** 支払い画面のURLをもらう。作るのはサーバー */
+export async function startCheckout(
+  auctionId: string,
+): Promise<{ ok: true; url: string } | { ok: false; message: string }> {
+  try {
+    const res = await fetch("/api/checkout", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ auctionId }),
+    });
+    const json = (await res.json()) as { url?: string; error?: string };
+    return res.ok && json.url
+      ? { ok: true, url: json.url }
+      : { ok: false, message: json.error ?? "お支払いの画面を開けませんでした。" };
+  } catch {
+    return { ok: false, message: "通信に失敗しました。もう一度お試しください。" };
+  }
+}
