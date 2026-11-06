@@ -556,7 +556,7 @@ export function HeroObject({
        * 帯は、必要になる少し手前で前にも後ろにも継ぎ足す。
        */
       type Leg = { start: number; plan: Plan; fromIndex: number; toIndex: number };
-      const MOTION_PER_SCREEN = 2; // 画面の高さ1つぶんで進む「動きの秒数」
+      const MOTION_PER_SCREEN = 0.6; // 画面の高さ1つぶんで進む「動きの秒数」（2では速すぎた）
       const motionTarget = () =>
         (window.scrollY / Math.max(1, window.innerHeight)) * MOTION_PER_SCREEN;
       const legEnd = (l: Leg) => l.start + l.plan.total;
@@ -659,11 +659,11 @@ export function HeroObject({
 
       /**
        * スクロールした量だけ回す（isnome.com の背景を参考に）。
-       * 画面の高さぶん下へ送ると、0.4周。上へ戻せば逆に回って戻る。
-       * （1周だと、スクロールに対して一つひとつの動きが速すぎた）
+       * 画面の高さぶん下へ送ると、0.15周。上へ戻せば逆に回って戻る。
+       * （1周、0.4周と試して、どちらもスクロールに対して速すぎた）
        * スクロールしていないときは回さない（自転はしない）。
        */
-      const SCROLL_TURN = TAU * 0.4; // 画面の高さ1つぶんで回る角度
+      const SCROLL_TURN = TAU * 0.15; // 画面の高さ1つぶんで回る角度
       const scrollTarget = () =>
         (window.scrollY / Math.max(1, window.innerHeight)) * SCROLL_TURN;
       let scrollAngle = scrollTarget();
