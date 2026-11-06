@@ -108,7 +108,7 @@ export function PaymentDrawer() {
                 <p className="mt-1.5 text-[0.9375rem]">{w.title}</p>
                 <p className="num mt-3 text-[1.5rem] font-light">{yen(w.amount)}</p>
                 <p className="mt-0.5 text-[0.75rem] text-ink/62">
-                  {kanjiYen(w.amount)}円（税込）
+                  {kanjiYen(w.amount)}（税込）
                 </p>
                 {wins.length > 1 && (
                   <button
