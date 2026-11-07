@@ -30,12 +30,43 @@ export const GRAIN = {
   /** 粒の大きさ（画面の画素数） */
   grainPx: 1,
   /** 粒の混ぜ具合。0 でなめらかな濃淡だけ、1 で粒だけ */
-  smooth: 0.5,
+  smooth: 0.2,
   /** 暗い面にも残す粒の割合（炭のような手触り） */
   floor: 0.0,
   /** 一番明るいところでも粒にならずに残す割合（白一色の板にしない） */
   cap: 0.96,
+  /** 細かなざらつき（画素ごとの明るさの揺れ） */
+  noise: 0.025,
+  /** 光沢の強さ（主光の照り返し。粒にせず、なめらかに乗せる） */
+  spec: 0.5,
+  /** 光沢の鋭さ（大きいほど小さく鋭い照り） */
+  shine: 28,
 };
+
+export type Grain = typeof GRAIN;
+
+/** 作った素材に、あとから値を流し込む（調整パネル用） */
+export function setGrain(
+  mat: THREE_T.ShaderMaterial,
+  g: Grain,
+) {
+  const u = mat.uniforms;
+  (u.uDark.value as THREE_T.Vector3).set(g.dark[0], g.dark[1], g.dark[2]);
+  (u.uLight.value as THREE_T.Vector3).set(g.light[0], g.light[1], g.light[2]);
+  (u.uKeyDir.value as THREE_T.Vector3).set(g.keyDir[0], g.keyDir[1], g.keyDir[2]).normalize();
+  (u.uFillDir.value as THREE_T.Vector3).set(g.fillDir[0], g.fillDir[1], g.fillDir[2]).normalize();
+  u.uKey.value = g.key;
+  u.uFill.value = g.fill;
+  u.uRim.value = g.rim;
+  u.uAmb.value = g.ambient;
+  u.uGrainPx.value = g.grainPx;
+  u.uSmooth.value = g.smooth;
+  u.uFloor.value = g.floor;
+  u.uCap.value = g.cap;
+  u.uNoise.value = g.noise;
+  u.uSpec.value = g.spec;
+  u.uShine.value = g.shine;
+}
 
 export function makeGrainMaterial(
   THREE: typeof THREE_T,
@@ -60,6 +91,9 @@ export function makeGrainMaterial(
       uSmooth: { value: g.smooth },
       uFloor: { value: g.floor },
       uCap: { value: g.cap },
+      uNoise: { value: g.noise },
+      uSpec: { value: g.spec },
+      uShine: { value: g.shine },
     },
     // 裏面も描く。部品のすき間から地が透けて白い点になるのを、暗い内側で埋める
     side: THREE.DoubleSide,
@@ -75,7 +109,7 @@ export function makeGrainMaterial(
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uDark, uLight, uKeyDir, uFillDir;
-      uniform float uKey, uFill, uRim, uAmb, uGrainPx, uSmooth, uFloor, uCap;
+      uniform float uKey, uFill, uRim, uAmb, uGrainPx, uSmooth, uFloor, uCap, uNoise, uSpec, uShine;
       varying vec3 vN;
       varying vec3 vP;
       // 画素ごとの乱数。粗い式だと粒が格子状に並んで見えるので、偏りの少ない式を使う
@@ -113,7 +147,11 @@ export function makeGrainMaterial(
         // 2つを混ぜる。粒だけだと塩をまいたように粗く、濃淡だけだとただのCGになる
         vec3 col = mix(shade, dither, uSmooth);
         // 炭のような手触り。暗い面にも細かなざらつきを薄く乗せる
-        col += (hash(cell + 71.3) - 0.5) * 0.07;
+        col += (hash(cell + 71.3) - 0.5) * uNoise * 2.0;
+        // 光沢。主光の照り返しを粒にせずなめらかに乗せる（つるっとした面に見せる）
+        vec3 h = normalize(uKeyDir + v);
+        float spec = pow(max(dot(n, h), 0.0), uShine);
+        col = mix(col, uLight, clamp(spec * uSpec, 0.0, 1.0));
         gl_FragColor = vec4(col, 1.0);
       }
     `,

@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 // 実体は動的に読み込む。型だけ静的に借りる
 import type * as THREE_T from "three";
 import { LOOK } from "@/lib/sykim/look";
-import { makeGrainMaterial } from "@/lib/sykim/grain";
+import { makeGrainMaterial, setGrain, type Grain } from "@/lib/sykim/grain";
+import { GrainTuner } from "@/components/GrainTuner";
 import { POSES } from "@/lib/sykim/poses";
 import { makeHitTest } from "@/lib/sykim/collide";
 
@@ -167,6 +168,18 @@ export function HeroObject({
       // 継ぎ目は輪が少し張り出している。縁の光を当てると明るい線、
       // 光を消すと黒い帯になる。本体と同じ光で、縁の光だけ外して馴染ませる
       const seamMat = makeGrainMaterial(THREE, { rim: 0 });
+      // 調整パネル（URL に ?tune）から値を流し込む口。継ぎ目は縁の光だけ外したまま
+      {
+        const w = window as unknown as {
+          __heroGrain__?: (g: Grain) => void;
+          __heroGrainLast__?: Grain;
+        };
+        w.__heroGrain__ = (g) => {
+          setGrain(grainMat, g);
+          setGrain(seamMat, { ...g, rim: 0 });
+        };
+        if (w.__heroGrainLast__) w.__heroGrain__(w.__heroGrainLast__);
+      }
       const meshes: THREE_T.Mesh[] = [];
       model.traverse((o) => {
         const m = o as THREE_T.Mesh;
@@ -719,6 +732,7 @@ export function HeroObject({
         resetRef.current = null;
         delete (window as unknown as { __resetHeroForm__?: () => void })
           .__resetHeroForm__;
+        delete (window as unknown as { __heroGrain__?: unknown }).__heroGrain__;
         renderer.setAnimationLoop(null);
         ro.disconnect();
         pm.dispose();
@@ -771,6 +785,8 @@ export function HeroObject({
             立体は画面いっぱいに大きいので、その「下」に置くと画面外へ出る。
             枠の内側、下端に重ねて置く。
             立体は pointer-events-none で敷いてあるので、ここだけ触れるようにする */}
+        <GrainTuner />
+
         {showReset && (
         <div className="pointer-events-auto absolute inset-x-0 bottom-[6%] z-10 flex justify-center">
         <button
