@@ -80,6 +80,12 @@ const GROUPS: { title: string; knobs: Knob[] }[] = [
         get: (g) => g.darkDots, set: (g, v) => ({ ...g, darkDots: v }) },
       { label: "粒の大きさ", hint: "画素数", min: 1, max: 4, step: 1,
         get: (g) => g.grainPx, set: (g, v) => ({ ...g, grainPx: v }) },
+      { label: "ラメ", hint: "銀色に元からある金属の粒。1で元のまま", min: 0, max: 1, step: 0.01,
+        get: (g) => g.flake, set: (g, v) => ({ ...g, flake: v }) },
+      { label: "表面の凹凸", hint: "1で元のまま、0でつるつる", min: 0, max: 1.5, step: 0.01,
+        get: (g) => g.bump, set: (g, v) => ({ ...g, bump: v }) },
+      { label: "光り方のムラ", hint: "1で元のまま、0で均一", min: 0, max: 1.5, step: 0.01,
+        get: (g) => g.mottle, set: (g, v) => ({ ...g, mottle: v }) },
     ],
   },
   {

@@ -21,36 +21,73 @@ export const SILVER = {
   /** まわりの景色の映り込み */
   env: 0.14,
   /** 粒の濃さ（画素ごとの明るさの揺れ） */
-  noise: 0.035,
+  noise: 0.015,
   /** 白い粒の量 */
-  dots: 0.12,
+  dots: 0.05,
   /** 白い粒が出はじめる明るさ（0〜1。小さいほど暗い所にも出る） */
   dotsFrom: 0.45,
   /** 黒い粒の量（影に散らす） */
   darkDots: 0.0,
   /** 粒の大きさ（画面の画素数） */
   grainPx: 1,
+  /** 銀色に元から入っているラメ（金属の粒）の量。1 で元のまま、0 で無し */
+  flake: 0.5,
+  /** 表面の細かな凹凸。1 で元のまま、0 でつるつる */
+  bump: 0.6,
+  /** 光り方のムラ（場所ごとの粗さの違い）。1 で元のまま、0 で均一 */
+  mottle: 0.6,
 };
+
+// look.ts（元の銀色）の値。ラメと凹凸はこれに掛けて弱める
+const FLAKE_MIN = 0.74;
+const FLAKE_MUL = 4;
+const FLAKE_BUMP = 0.35;
+const BUMP_STR = 0.18917 * 0.02;
+const MICRO = 0.29;
 
 export type Silver = typeof SILVER;
 
 /** 粒の値はすべての素材で同じものを指す。1 か所を書き換えれば全部に効く */
 export function makeGrainUniforms(s: Silver = SILVER) {
-  return {
+  const u = {
     uNoise: { value: s.noise },
     uDots: { value: s.dots },
     uDotsFrom: { value: s.dotsFrom },
     uDarkDots: { value: s.darkDots },
     uGrainPx: { value: s.grainPx },
+    // 以下は look.ts の同じ名前の値を上書きする（ラメと凹凸の強さ）
+    uFlakeMin: { value: 0 },
+    uFlakeMul: { value: 0 },
+    uFlakeBump: { value: 0 },
+    uBumpStr: { value: 0 },
+    uMicro: { value: 0 },
+    uRN: { value: 0 },
   };
+  setFlakeBump(u, s);
+  return u;
 }
-export type GrainUniforms = ReturnType<typeof makeGrainUniforms>;
+
+function setFlakeBump(u: GrainUniforms, s: Silver) {
+  const a = Math.min(1, Math.max(0, s.flake));
+  // 0 に近づくほど、粒になるセルが減り、明るさと向きの散らばりも弱まる
+  u.uFlakeMin.value = FLAKE_MIN + (0.999 - FLAKE_MIN) * (1 - a);
+  u.uFlakeMul.value = 1 + (FLAKE_MUL - 1) * a;
+  u.uFlakeBump.value = FLAKE_BUMP * a;
+  u.uBumpStr.value = BUMP_STR * s.bump;
+  u.uMicro.value = MICRO * s.bump;
+  u.uRN.value = s.mottle;
+}
+export type GrainUniforms = {
+  [K in "uNoise" | "uDots" | "uDotsFrom" | "uDarkDots" | "uGrainPx" | "uFlakeMin"
+    | "uFlakeMul" | "uFlakeBump" | "uBumpStr" | "uMicro" | "uRN"]: { value: number };
+};
 
 /** 素材に粒を足す。applyLook のあとに呼ぶ（元の書き換えはそのまま生かす） */
 export function addGrain(mat: THREE_T.Material, u: GrainUniforms) {
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = (sh, r) => {
     prev?.call(mat, sh, r);
+    // applyLook が作った値を、共有の値で差し替える（パネルから動かせるように）
     Object.assign(sh.uniforms, u);
     sh.fragmentShader =
       /* glsl */ `
@@ -71,10 +108,11 @@ export function addGrain(mat: THREE_T.Material, u: GrainUniforms) {
           float lum = dot(c, vec3(0.299, 0.587, 0.114));
           // 明るい所ほど白い粒が増える（点描のように）
           float w = smoothstep(uDotsFrom, 1.0, lum) * uDots;
-          c = mix(c, vec3(1.0), step(grainHash(cell), w) * 0.85);
+          // step() だと乱数がちょうど 0 の画素で量 0 でも点が出るので、< で比べる
+          c = mix(c, vec3(1.0), float(grainHash(cell) < w) * 0.85);
           // 暗い所ほど黒い粒が増える
           float b = (1.0 - smoothstep(0.0, uDotsFrom, lum)) * uDarkDots;
-          c = mix(c, vec3(0.0), step(grainHash(cell + 17.7), b) * 0.85);
+          c = mix(c, vec3(0.0), float(grainHash(cell + 17.7) < b) * 0.85);
           // 全体の細かなざらつき
           c += (grainHash(cell + 71.3) - 0.5) * uNoise * 2.0;
           gl_FragColor.rgb = clamp(c, 0.0, 1.0);
@@ -110,4 +148,5 @@ export function setSilver(
   t.u.uDotsFrom.value = s.dotsFrom;
   t.u.uDarkDots.value = s.darkDots;
   t.u.uGrainPx.value = s.grainPx;
+  setFlakeBump(t.u, s);
 }
