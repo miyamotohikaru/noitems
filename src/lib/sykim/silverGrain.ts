@@ -45,21 +45,23 @@ export const SILVER = {
   /** 引きのラメの量 */
   farFlake: 0.6,
   /** 引きのラメの大きさ（1 で近くと同じ。大きいほど粗い粒） */
-  farFlakeSize: 2,
+  farFlakeSize: 1.5,
   /** 引きの表面の凹凸 */
   farBump: 0.8,
   /** 引きの凹凸の大きさ */
-  farBumpSize: 2,
+  farBumpSize: 1.5,
   /** 引きの光り方のムラ */
   farMottle: 0.4,
   /** 引きのざらつき */
-  farNoise: 0.006,
+  farNoise: 0.01,
   /** 引きの白い粒の量 */
   farDots: 0.01,
   /** 引きの継ぎ目の暗さ（縮むと継ぎ目が白い線として浮くので、暗めにする） */
   farSeam: 0.3,
   /** 引きの明るさ（近くとの差） */
   farExposure: 0,
+  /** ラメと凹凸の粗さの上限（近くの何倍まで粗くしてよいか）。大きすぎると粒が目立って嫌な感じになる */
+  farSizeMax: 2.6,
 };
 
 // look.ts（元の銀色）の値。ラメと凹凸はこれに掛けて弱める
@@ -203,8 +205,9 @@ export function setSilver(
   // それより小さくなったら、ラメと凹凸を粗くして、画面で見た大きさを保つ。
   // 小さくなった分そのままだと粗すぎるので、少し控えめにする（0.75 乗）
   const extra = Math.pow(Math.max(1, 0.55 / eff), 0.75);
-  z.flakeSize *= extra;
-  z.bumpSize *= extra;
+  // ただし上限を超えて粗くしない（ほどけて伸びた姿でカメラが大きく下がると、粒が大きく見えすぎる）
+  z.flakeSize = Math.min(z.flakeSize * extra, Math.max(1, s.farSizeMax));
+  z.bumpSize = Math.min(z.bumpSize * extra, Math.max(1, s.farSizeMax));
   t.body.color.set(s.base);
   t.body.metalness = s.metalness;
   for (const m of t.seams) {

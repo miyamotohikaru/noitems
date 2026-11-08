@@ -104,6 +104,8 @@ const GROUPS: { title: string; knobs: Knob[] }[] = [
         get: (g) => g.farFlake, set: (g, v) => ({ ...g, farFlake: v }) },
       { label: "ラメの大きさ", hint: "1で近くと同じ", min: 1, max: 5, step: 0.05,
         get: (g) => g.farFlakeSize, set: (g, v) => ({ ...g, farFlakeSize: v }) },
+      { label: "粗さの上限", hint: "ほどけた時に粒が大きすぎるなら下げる", min: 1, max: 6, step: 0.05,
+        get: (g) => g.farSizeMax, set: (g, v) => ({ ...g, farSizeMax: v }) },
       { label: "表面の凹凸", hint: "", min: 0, max: 2, step: 0.01,
         get: (g) => g.farBump, set: (g, v) => ({ ...g, farBump: v }) },
       { label: "凹凸の大きさ", hint: "1で近くと同じ", min: 1, max: 5, step: 0.05,

@@ -52,7 +52,6 @@ export function Hero() {
   const stageRef = useRef<HTMLDivElement>(null);
   const objRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
-  const cueRef = useRef<HTMLDivElement>(null);
   const tagRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
@@ -105,9 +104,6 @@ export function Hero() {
       // 本文が出きったら、立体はスクロールしなくてもひとりでに動き出す（lib/sykim/motion.ts）
       heroMotion.settled = t >= 0.999;
 
-      // SCROLL の合図: 動き出したら消す
-      if (cueRef.current)
-        cueRef.current.style.opacity = String(1 - clamp(p / 0.12));
     };
     const request = () => {
       if (!raf) raf = requestAnimationFrame(update);
@@ -167,9 +163,9 @@ export function Hero() {
             </div>
           )}
 
-          {/* 下へ続くことだけを、静かに示す */}
+          {/* 下へ続くことだけを、静かに示す。
+              スクロールし始めても消さない（2026-11-08 ユーザー指定「ずっと出てて欲しい」） */}
           <div
-            ref={cueRef}
             aria-hidden
             className="pointer-events-none absolute bottom-8 flex flex-col items-start gap-3
                        left-[var(--spacing-gutter)]"
