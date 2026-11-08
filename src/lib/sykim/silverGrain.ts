@@ -8,34 +8,35 @@ import type * as THREE_T from "three";
  * 粒は画面の画素ごとに、色を作り終えた最後に足す（立体が回っても粒は画面に張り付いたまま）。
  *
  * 値は調整パネル（URL に ?tune）で動かせる。ユーザーから送られた値をここに書き写して確定する。
+ * 今の値は 2026-11-08 にユーザーがパネルで決めたもの。
  */
 export const SILVER = {
   /** 本体の色（画面の色。#rrggbb） */
   base: "#9d9ea7",
   /** 継ぎ目の暗さ（本体の色に掛ける） */
-  seam: 0.55,
+  seam: 0.5,
   /** 金属っぽさ。0 で塗装、1 で鏡のような金属 */
-  metalness: 0.775,
+  metalness: 0.76,
   /** 全体の明るさ（露出。2 の何乗か） */
   exposure: -1.475,
   /** まわりの景色の映り込み */
-  env: 0.14,
+  env: 0.18,
   /** 粒の濃さ（画素ごとの明るさの揺れ） */
-  noise: 0.015,
+  noise: 0.003,
   /** 白い粒の量 */
-  dots: 0.05,
+  dots: 0.01,
   /** 白い粒が出はじめる明るさ（0〜1。小さいほど暗い所にも出る） */
-  dotsFrom: 0.45,
+  dotsFrom: 1,
   /** 黒い粒の量（影に散らす） */
   darkDots: 0.0,
   /** 粒の大きさ（画面の画素数） */
   grainPx: 1,
   /** 銀色に元から入っているラメ（金属の粒）の量。1 で元のまま、0 で無し */
-  flake: 0.5,
+  flake: 0.41,
   /** 表面の細かな凹凸。1 で元のまま、0 でつるつる */
-  bump: 0.6,
+  bump: 0.55,
   /** 光り方のムラ（場所ごとの粗さの違い）。1 で元のまま、0 で均一 */
-  mottle: 0.6,
+  mottle: 0.28,
 };
 
 // look.ts（元の銀色）の値。ラメと凹凸はこれに掛けて弱める
@@ -107,11 +108,12 @@ export function addGrain(mat: THREE_T.Material, u: GrainUniforms) {
           vec3 c = gl_FragColor.rgb;
           float lum = dot(c, vec3(0.299, 0.587, 0.114));
           // 明るい所ほど白い粒が増える（点描のように）
-          float w = smoothstep(uDotsFrom, 1.0, lum) * uDots;
+          // 両端が同じ値だと smoothstep の結果は決まらないので、少しだけ離す
+          float w = smoothstep(min(uDotsFrom, 0.999), 1.0, lum) * uDots;
           // step() だと乱数がちょうど 0 の画素で量 0 でも点が出るので、< で比べる
           c = mix(c, vec3(1.0), float(grainHash(cell) < w) * 0.85);
           // 暗い所ほど黒い粒が増える
-          float b = (1.0 - smoothstep(0.0, uDotsFrom, lum)) * uDarkDots;
+          float b = (1.0 - smoothstep(0.0, max(uDotsFrom, 0.001), lum)) * uDarkDots;
           c = mix(c, vec3(0.0), float(grainHash(cell + 17.7) < b) * 0.85);
           // 全体の細かなざらつき
           c += (grainHash(cell + 71.3) - 0.5) * uNoise * 2.0;
