@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { SILVER, type Silver } from "@/lib/sykim/silverGrain";
+import { AUTO_SPEED, heroMotion } from "@/lib/sykim/motion";
 
 /**
  * 立体の質感を、その場で動かして確かめる調整パネル。
@@ -19,8 +20,9 @@ const STORE = "noitems-silver-tune";
 
 /** ページの背景（globals.css の --color-ground）。立体の値と一緒に調整する */
 const GROUND = "#d9d7d3";
-type Tune = Silver & { ground: string };
-const DEFAULT: Tune = { ...SILVER, ground: GROUND };
+// autoSpeed は lib/sykim/motion.ts の AUTO_SPEED（引ききったあと、ひとりでに動く速さ）
+type Tune = Silver & { ground: string; autoSpeed: number };
+const DEFAULT: Tune = { ...SILVER, ground: GROUND, autoSpeed: AUTO_SPEED };
 
 const toHex = (a: number[]) =>
   "#" + a.slice(0, 3).map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255)
@@ -86,6 +88,13 @@ const GROUPS: { title: string; knobs: Knob[] }[] = [
         get: (g) => g.bump, set: (g, v) => ({ ...g, bump: v }) },
       { label: "光り方のムラ", hint: "1で元のまま、0で均一", min: 0, max: 1.5, step: 0.01,
         get: (g) => g.mottle, set: (g, v) => ({ ...g, mottle: v }) },
+    ],
+  },
+  {
+    title: "動き",
+    knobs: [
+      { label: "ひとりでに動く速さ", hint: "引ききったあと。0で止まる", min: 0, max: 2, step: 0.01,
+        get: (g) => g.autoSpeed, set: (g, v) => ({ ...g, autoSpeed: v }) },
     ],
   },
   {
@@ -191,12 +200,14 @@ export function GrainTuner() {
     setOn(true);
     push(saved);
     paint(saved.ground);
+    heroMotion.autoSpeed = saved.autoSpeed;
   }, []);
 
   const update = (next: Tune) => {
     setG(next);
     push(next);
     paint(next.ground);
+    heroMotion.autoSpeed = next.autoSpeed;
     try {
       localStorage.setItem(STORE, JSON.stringify(diff(next)));
     } catch {}
@@ -213,7 +224,7 @@ export function GrainTuner() {
                  shadow-[0_2px_16px_rgba(0,0,0,0.15)] backdrop-blur"
     >
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="font-medium">質感の調整</span>
+        <span className="font-medium">見た目の調整</span>
         <button type="button" onClick={() => setOpen(!open)} className="px-2 py-1">
           {open ? "たたむ" : "ひらく"}
         </button>

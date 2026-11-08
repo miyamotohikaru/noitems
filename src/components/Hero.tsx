@@ -4,6 +4,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { hero, site } from "@/lib/lot";
 import { Bracket } from "./Bracket";
 import { HeroObject, ResetFormButton } from "./HeroObject";
+import { heroMotion } from "@/lib/sykim/motion";
 
 /**
  * スマホ幅かどうか。
@@ -101,6 +102,8 @@ export function Hero() {
       }
       // 見えないうちは押せないようにする（戻すボタンの誤操作よけ）
       if (textRef.current) textRef.current.dataset.live = t > 0.6 ? "1" : "";
+      // 本文が出きったら、立体はスクロールしなくてもひとりでに動き出す（lib/sykim/motion.ts）
+      heroMotion.settled = t >= 0.999;
 
       // SCROLL の合図: 動き出したら消す
       if (cueRef.current)

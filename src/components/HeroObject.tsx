@@ -12,6 +12,7 @@ import {
   type Silver,
 } from "@/lib/sykim/silverGrain";
 import { GrainTuner } from "@/components/GrainTuner";
+import { heroMotion } from "@/lib/sykim/motion";
 import { POSES } from "@/lib/sykim/poses";
 import { makeHitTest } from "@/lib/sykim/collide";
 
@@ -591,8 +592,12 @@ export function HeroObject({
        */
       type Leg = { start: number; plan: Plan; fromIndex: number; toIndex: number };
       const MOTION_PER_SCREEN = 0.6; // 画面の高さ1つぶんで進む「動きの秒数」（2では速すぎた）
+      // 引ききったあと、ひとりでに進んだぶん（画面の高さ何個ぶんのスクロールに当たるか）。
+      // スクロールで進んだぶんに足す。巻き戻すと、ここから逆再生になる
+      let autoScreens = 0;
       const motionTarget = () =>
-        (window.scrollY / Math.max(1, window.innerHeight)) * MOTION_PER_SCREEN;
+        (window.scrollY / Math.max(1, window.innerHeight) + autoScreens) *
+        MOTION_PER_SCREEN;
       const legEnd = (l: Leg) => l.start + l.plan.total;
       const legs: Leg[] = [];
       /** motion の位置に、畳まれた塊を置く */
@@ -669,6 +674,7 @@ export function HeroObject({
         const p = planBetween(cur.slice(), POSES[0], true);
         if (!p) return;
         resetLeg = { plan: p, t0: performance.now() / 1000 };
+        autoHoldAt = window.scrollY;
         // いちばん近い正面へ。行きすぎず戻りすぎず、最短で合わせる。
         // 見えている向きは「戻しの角度＋スクロールぶん」なので、その合計が正面に来るようにする
         spinFrom = spinAngle;
@@ -700,7 +706,11 @@ export function HeroObject({
        */
       const SCROLL_TURN = TAU * 0.15; // 画面の高さ1つぶんで回る角度
       const scrollTarget = () =>
-        (window.scrollY / Math.max(1, window.innerHeight)) * SCROLL_TURN;
+        (window.scrollY / Math.max(1, window.innerHeight) + autoScreens) *
+        SCROLL_TURN;
+      // 「はじめのかたちに戻す」を押したら、次にスクロールするまでひとりでには動かさない
+      // （押した直後にまたほどけ出すと、戻した意味がなくなる）
+      let autoHoldAt: number | null = null;
       let scrollAngle = scrollTarget();
       let lastT = performance.now() / 1000;
 
@@ -712,6 +722,10 @@ export function HeroObject({
         // 回転も関節も、スクロールに少し遅れて追いつく（約0.4秒で8割）。
         // 指やホイールの刻みでカクつかず、止めたあとは惰性で落ち着いて止まる
         const k = 1 - Math.exp(-dt * 4);
+        if (autoHoldAt !== null && Math.abs(window.scrollY - autoHoldAt) > 2)
+          autoHoldAt = null;
+        if (heroMotion.settled && !resetLeg && autoHoldAt === null)
+          autoScreens += dt * heroMotion.autoSpeed;
         motion += (motionTarget() - motion) * k;
         scrollAngle += (scrollTarget() - scrollAngle) * k;
 
