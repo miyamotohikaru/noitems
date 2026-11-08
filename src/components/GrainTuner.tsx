@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { SILVER, type Silver } from "@/lib/sykim/silverGrain";
-import { AUTO_SPEED, heroMotion } from "@/lib/sykim/motion";
+import {
+  AUTO_SPEED,
+  END_SCALE,
+  START_SCALE,
+  heroLayout,
+  heroMotion,
+} from "@/lib/sykim/motion";
 
 /**
  * 立体の質感を、その場で動かして確かめる調整パネル。
@@ -21,8 +27,30 @@ const STORE = "noitems-silver-tune";
 /** ページの背景（globals.css の --color-ground）。立体の値と一緒に調整する */
 const GROUND = "#d9d7d3";
 // autoSpeed は lib/sykim/motion.ts の AUTO_SPEED（引ききったあと、ひとりでに動く速さ）
-type Tune = Silver & { ground: string; autoSpeed: number };
-const DEFAULT: Tune = { ...SILVER, ground: GROUND, autoSpeed: AUTO_SPEED };
+// startScale / endScale も motion.ts（立体の大きさ）
+type Tune = Silver & {
+  ground: string;
+  autoSpeed: number;
+  startScale: number;
+  endScale: number;
+};
+const DEFAULT: Tune = {
+  ...SILVER,
+  ground: GROUND,
+  autoSpeed: AUTO_SPEED,
+  startScale: START_SCALE,
+  endScale: END_SCALE,
+};
+
+/** 動きと大きさを当てる（質感以外） */
+function applyMotion(g: Tune) {
+  heroMotion.autoSpeed = g.autoSpeed;
+  if (heroLayout.startScale !== g.startScale || heroLayout.endScale !== g.endScale) {
+    heroLayout.startScale = g.startScale;
+    heroLayout.endScale = g.endScale;
+    window.dispatchEvent(new Event("hero-layout"));
+  }
+}
 
 const toHex = (a: number[]) =>
   "#" + a.slice(0, 3).map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255)
@@ -88,6 +116,15 @@ const GROUPS: { title: string; knobs: Knob[] }[] = [
         get: (g) => g.bump, set: (g, v) => ({ ...g, bump: v }) },
       { label: "光り方のムラ", hint: "1で元のまま、0で均一", min: 0, max: 1.5, step: 0.01,
         get: (g) => g.mottle, set: (g, v) => ({ ...g, mottle: v }) },
+    ],
+  },
+  {
+    title: "大きさ",
+    knobs: [
+      { label: "はじめの大きさ", hint: "1で従来の大きさ", min: 0.4, max: 1.2, step: 0.01,
+        get: (g) => g.startScale, set: (g, v) => ({ ...g, startScale: v }) },
+      { label: "引いたときの大きさ", hint: "1で従来の大きさ", min: 0.5, max: 1.5, step: 0.01,
+        get: (g) => g.endScale, set: (g, v) => ({ ...g, endScale: v }) },
     ],
   },
   {
@@ -202,14 +239,14 @@ export function GrainTuner() {
     setOn(true);
     push(saved);
     paint(saved.ground);
-    heroMotion.autoSpeed = saved.autoSpeed;
+    applyMotion(saved);
   }, []);
 
   const update = (next: Tune) => {
     setG(next);
     push(next);
     paint(next.ground);
-    heroMotion.autoSpeed = next.autoSpeed;
+    applyMotion(next);
     try {
       localStorage.setItem(STORE, JSON.stringify(diff(next)));
     } catch {}

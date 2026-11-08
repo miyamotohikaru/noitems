@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 // 実体は動的に読み込む。型だけ静的に借りる
 import type * as THREE_T from "three";
 import { LOOK, applyLook } from "@/lib/sykim/look";
@@ -56,20 +57,34 @@ function addResetter(fn: () => void) {
 export function HeroObject({
   className = "",
   showReset = true,
+  stage,
 }: {
   className?: string;
+  /**
+   * 描画を広げる先（ヒーローの舞台全体）。
+   * 渡すと、canvas を舞台いっぱいに敷き、立体はこのコンポーネントの正方形の枠の位置・大きさに
+   * 合わせて描く（カメラの側で寄せる）。正方形の canvas のままだと、ほどけて伸びた形が
+   * 枠の縁でまっすぐ切れて、本文の後ろへ隠れたように見えていた（2026-11-08）。
+   */
+  stage?: HTMLElement | null;
+  // （stage に null を渡したら「舞台がまだ無い」の意味。用意できるまで 3D を始めない）
   /** 立体の中にボタンを重ねるか。デスクトップは本文側に別途置くので false */
   showReset?: boolean;
 }) {
   const holder = useRef<HTMLDivElement>(null);
+  /** 立体を収める正方形の枠（外側の CSS で縮められ、動かされる） */
+  const frame = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
   /** ボタンから「元の形へ戻す」を呼ぶための受け皿 */
   const resetRef = useRef<(() => void) | null>(null);
   const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
+    // 舞台を待っているあいだは始めない（二度読み込むのを避ける）
+    if (stage === null) return;
     const el = holder.current;
-    if (!el) return;
+    const fr = frame.current;
+    if (!el || !fr) return;
 
     let disposed = false;
     let cleanup: (() => void) | undefined;
@@ -293,7 +308,9 @@ export function HeroObject({
 
       // 表示を大きくすると画素数が一気に増えて描画が追いつかなくなる。
       // 見た目の大きさはそのままに、中で持つ画素数だけ上限をかける。
-      const MAX_PIXELS = 1500;
+      // canvas を舞台いっぱいに広げたので、上限も画面の幅に合わせて上げた（元は正方形で 1500）
+      const MAX_PIXELS = 2000;
+      let viewKey = "";
       const resize = () => {
         const w = el.clientWidth || 1;
         const h = el.clientHeight || 1;
@@ -304,7 +321,25 @@ export function HeroObject({
         );
         renderer.setPixelRatio(Math.max(1, dpr));
         renderer.setSize(w, h, false);
-        camera.aspect = w / h;
+        // 縦横比は正方形の枠のもの（1）。canvas のどこを映すかは frameView() で決める
+        camera.aspect = 1;
+        viewKey = "";
+        frameView();
+      };
+      /**
+       * 正方形の枠が、canvas（舞台）のどこにどの大きさで見えているかを測り、
+       * カメラの映す範囲をそこに合わせる。枠の外にはみ出した部分も、canvas の中なら描ける
+       */
+      const frameView = () => {
+        const a = fr.getBoundingClientRect();
+        const b = el.getBoundingClientRect();
+        const sq = a.width || 1;
+        const x = b.left - a.left;
+        const y = b.top - a.top;
+        const key = `${sq.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)} ${b.width} ${b.height}`;
+        if (key === viewKey) return;
+        viewKey = key;
+        camera.setViewOffset(sq, sq, x, y, b.width || 1, b.height || 1);
         camera.updateProjectionMatrix();
       };
       resize();
@@ -600,8 +635,11 @@ export function HeroObject({
         MOTION_PER_SCREEN;
       const legEnd = (l: Leg) => l.start + l.plan.total;
       const legs: Leg[] = [];
+      /** 畳まれた塊を置いた motion の位置（「戻す」で巻き戻す先） */
+      let anchorAt = 0;
       /** motion の位置に、畳まれた塊を置く */
       const anchor = (v: number) => {
+        anchorAt = v;
         legs.length = 0;
         // 待ちは手前側にだけ置く。下へのスクロールでは、最初のひと送りから関節も動く
         legs.push({ start: v - 0.6, plan: holdPlan(POSES[0], 0.6), fromIndex: 0, toIndex: 0 });
@@ -665,22 +703,46 @@ export function HeroObject({
       let motion = motionTarget();
       anchor(motion);
 
-      /** 「戻す」だけは、スクロールを待たずに時間で動かす */
-      let resetLeg: { plan: Plan; t0: number } | null = null;
+      /**
+       * 「戻す」だけは、スクロールを待たずに時間で動かす。
+       *   plan   … いまの姿から畳まれた塊へ、新しく道筋を作って戻す
+       *   rewind … 道筋が作れなかったとき。これまでたどってきた帯を、畳まれた塊の位置まで
+       *            早回しで巻き戻す（どれもめり込まないと確かめた動きなので、必ず戻れる）
+       */
+      type ResetLeg =
+        | { kind: "plan"; plan: Plan; t0: number; total: number }
+        | { kind: "rewind"; from: number; to: number; t0: number; total: number };
+      let resetLeg: ResetLeg | null = null;
+      /** 巻き戻しの長さ。帯が長くても、この秒数に収める */
+      const REWIND_MAX = 2.4;
 
       // ボタンから呼ばれる。いまの姿を起点に、畳まれた塊へ戻す。
       // 戻し終わったら、その位置を新しい起点にして帯を張り直す
       const doReset = () => {
-        const p = planBetween(cur.slice(), POSES[0], true);
-        if (!p) return;
-        resetLeg = { plan: p, t0: performance.now() / 1000 };
+        if (resetLeg) return;
+        const t0 = performance.now() / 1000;
+        // 形によっては、ぶつからずに畳む道筋が見つからない（以前はそのとき何も起きなかった）。
+        // 静かな戻し方 → ふつうの戻し方 → 巻き戻し、の順に試す
+        const p =
+          planBetween(cur.slice(), POSES[0], true) ??
+          planBetween(cur.slice(), POSES[0]);
+        let settledIn: number;
+        if (p) {
+          resetLeg = { kind: "plan", plan: p, t0, total: p.total };
+          settledIn = p.settled;
+        } else {
+          const dist = Math.abs(motion - anchorAt);
+          const total = Math.min(REWIND_MAX, Math.max(0.8, dist));
+          resetLeg = { kind: "rewind", from: motion, to: anchorAt, t0, total };
+          settledIn = total;
+        }
         autoHoldAt = window.scrollY;
         // いちばん近い正面へ。行きすぎず戻りすぎず、最短で合わせる。
         // 見えている向きは「戻しの角度＋スクロールぶん」なので、その合計が正面に来るようにする
         spinFrom = spinAngle;
         spinTo = Math.round((spinAngle + scrollAngle) / TAU) * TAU - scrollAngle;
-        spinStart = resetLeg.t0;
-        spinDur = p.settled;
+        spinStart = t0;
+        spinDur = settledIn;
       };
       resetRef.current = doReset;
       unregister = addResetter(doReset);
@@ -731,8 +793,14 @@ export function HeroObject({
 
         if (resetLeg) {
           const lt = nowSec - resetLeg.t0;
-          playPlan(resetLeg.plan, lt);
-          if (lt >= resetLeg.plan.total) {
+          if (resetLeg.kind === "plan") playPlan(resetLeg.plan, lt);
+          else {
+            const u = Math.min(1, lt / resetLeg.total);
+            // ゆっくり出て、ゆっくり止まる
+            const e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+            poseAt(resetLeg.from + (resetLeg.to - resetLeg.from) * e);
+          }
+          if (lt >= resetLeg.total) {
             resetLeg = null;
             anchor(motion);
           }
@@ -758,10 +826,11 @@ export function HeroObject({
           }
         }
         pivot.rotation.y = spinAngle + scrollAngle;
-        // 外側の CSS で縮められている割合を測る（canvas の大きさは変えていない）
+        frameView();
+        // 外側の CSS で枠が縮められている割合を測る
         {
-          const zr = el.offsetWidth
-            ? el.getBoundingClientRect().width / el.offsetWidth
+          const zr = fr.offsetWidth
+            ? fr.getBoundingClientRect().width / fr.offsetWidth
             : 1;
           const cr = Math.min(1, dist0 / curDist);
           if (Math.abs(zr - zoom) > 0.004 || Math.abs(cr - cam) > 0.004) {
@@ -778,8 +847,15 @@ export function HeroObject({
       // ページの一番上で呼ぶと、開いた瞬間と同じ姿・同じ向きの絵が透過PNGで返る
       if (process.env.NODE_ENV !== "production") {
         (window as unknown as { __heroSnap__?: () => string }).__heroSnap__ = () => {
+          // 静止画は正方形の枠そのもの。いったん canvas を正方形にして撮り、元に戻す
+          renderer.setPixelRatio(1);
+          renderer.setSize(1530, 1530, false);
+          camera.clearViewOffset();
+          camera.updateProjectionMatrix();
           renderer.render(scene, camera);
-          return renderer.domElement.toDataURL("image/png");
+          const url = renderer.domElement.toDataURL("image/png");
+          resize();
+          return url;
         };
       }
 
@@ -807,7 +883,7 @@ export function HeroObject({
       unregister?.();
       cleanup?.();
     };
-  }, []);
+  }, [stage]);
 
   // 外側は渡された配置をそのまま使う。ここに relative を足すと
   // absolute と競合して配置が丸ごと壊れる
@@ -822,7 +898,7 @@ export function HeroObject({
             違うので、重ねると二重写りに見える。ほぼ同じ絵なので、切り替えは一瞬でよい。
             枠は正方形で確保し、canvas と同じ場所・同じ大きさで重ねる。
             影（.cutout）は付けない。立体の側に影がないので、そこで差が出る。 */}
-        <div aria-hidden className="aspect-square w-full" />
+        <div ref={frame} aria-hidden className="aspect-square w-full" />
         <img
           src="/img/form-hero.webp"
           alt="つや消しの銀色をした、用途の定まらないかたち"
@@ -830,12 +906,24 @@ export function HeroObject({
           data-ready={ready}
           className="absolute inset-0 h-full w-full data-[ready=true]:opacity-0"
         />
-        <div
-          ref={holder}
-          data-ready={ready}
-          aria-hidden
-          className="absolute inset-0 opacity-0 data-[ready=true]:opacity-100"
-        />
+        {stage ? (
+          createPortal(
+            <div
+              ref={holder}
+              data-ready={ready}
+              aria-hidden
+              className="pointer-events-none absolute inset-0 z-0 opacity-0 data-[ready=true]:opacity-100"
+            />,
+            stage,
+          )
+        ) : (
+          <div
+            ref={holder}
+            data-ready={ready}
+            aria-hidden
+            className="absolute inset-0 opacity-0 data-[ready=true]:opacity-100"
+          />
+        )}
 
         {/* 押すと畳まれた塊へ戻る。
             立体は画面いっぱいに大きいので、その「下」に置くと画面外へ出る。

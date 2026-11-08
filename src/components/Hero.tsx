@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { hero, site } from "@/lib/lot";
 import { Bracket } from "./Bracket";
 import { HeroObject, ResetFormButton } from "./HeroObject";
-import { heroMotion } from "@/lib/sykim/motion";
+import { heroLayout, heroMotion } from "@/lib/sykim/motion";
 
 /**
  * スマホ幅かどうか。
@@ -50,6 +50,8 @@ export function Hero() {
   const isMobile = useIsMobile();
   const sectionRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  // 立体の canvas を舞台いっぱいに敷くため、舞台の要素を HeroObject に渡す
+  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
   const objRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const tagRef = useRef<HTMLParagraphElement>(null);
@@ -87,7 +89,8 @@ export function Hero() {
         const right = vw >= 1536 ? 7 * rem : 3 * rem;
         endX = vw - right - endW / 2;
       }
-      const s = lerp(1, endW / startW, a);
+      endW *= heroLayout.endScale;
+      const s = lerp(heroLayout.startScale, endW / startW, a);
       const x = lerp(vw / 2, endX, a) - vw / 2;
       const y = lerp(vh / 2, endY, a) - vh / 2;
       obj.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${s})`;
@@ -111,10 +114,13 @@ export function Hero() {
     update();
     window.addEventListener("scroll", request, { passive: true });
     window.addEventListener("resize", request);
+    // 調整パネルで大きさを変えたとき
+    window.addEventListener("hero-layout", request);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("scroll", request);
       window.removeEventListener("resize", request);
+    window.removeEventListener("hero-layout", request);
     };
   }, [isMobile]);
 
@@ -126,7 +132,10 @@ export function Hero() {
         className="relative h-[340svh] md:h-[440svh]"
       >
         <div
-          ref={stageRef}
+          ref={(n) => {
+            stageRef.current = n;
+            setStageEl(n);
+          }}
           className="sticky top-0 h-[100svh] overflow-hidden"
         >
           {/* 立体。はじめは画面の真ん中に、はみ出すほど大きく置く。
@@ -137,7 +146,7 @@ export function Hero() {
                        -ml-[85vmin] -mt-[85vmin] w-[170vmin] origin-center
                        will-change-transform"
           >
-            <HeroObject showReset={false} />
+            <HeroObject showReset={false} stage={stageEl} />
           </div>
 
           {/* キービジュアルの署名。明朝の縦組みでここだけ書体を変える */}

@@ -32,11 +32,11 @@ export const SILVER = {
   /** 粒の大きさ（画面の画素数） */
   grainPx: 1,
   /** 銀色に元から入っているラメ（金属の粒）の量。1 で元のまま、0 で無し */
-  flake: 0.41,
+  flake: 0.06,
   /** 表面の細かな凹凸。1 で元のまま、0 でつるつる */
-  bump: 0.55,
+  bump: 0.39,
   /** 光り方のムラ（場所ごとの粗さの違い）。1 で元のまま、0 で均一 */
-  mottle: 0.28,
+  mottle: 0.51,
 
   // ── 引き（スクロールで立体が縮んだとき）の値。
   // 縮むとラメや凹凸が画面の1点より小さくなって均され、つるつるのCGに見える。
@@ -220,7 +220,7 @@ export function setSilver(
   t.u.uDots.value = z.dots;
   t.u.uDotsFrom.value = s.dotsFrom;
   t.u.uDarkDots.value = s.darkDots;
-  // 粒は画面に描く点なので、CSS で縮んだ分だけ大きくする（カメラの寄りは関係ない）
-  t.u.uGrainPx.value = s.grainPx / Math.max(zoom, 0.2);
+  // 粒は画面に描く点。canvas は舞台いっぱいで縮められていないので、そのままの大きさで描く
+  t.u.uGrainPx.value = s.grainPx;
   setFlakeBump(t.u, z);
 }
