@@ -2,24 +2,25 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { GRAIN, type Grain } from "@/lib/sykim/grain";
+import { SILVER, type Silver } from "@/lib/sykim/silverGrain";
 
 /**
  * 立体の質感を、その場で動かして確かめる調整パネル。
  * URL に ?tune を付けたときだけ出る（例: https://noitems01.vercel.app/?tune）。
  *
  * 使い方: つまみを動かす →「値をコピー」→ その文字をそのまま Claude に送る。
- * 送られた値を lib/sykim/grain.ts の GRAIN に書き写して確定する
+ * 送られた値を lib/sykim/silverGrain.ts の SILVER に書き写して確定する
  * （ground だけは背景色なので globals.css の --color-ground へ）。
  * 動かした値はこのブラウザに覚えておくので、再読み込みしても消えない。
  */
 
-const STORE = "noitems-grain-tune";
+// 黒い粒子の頃（noitems-grain-tune）とは値の中身が違うので、覚える場所を分ける
+const STORE = "noitems-silver-tune";
 
 /** ページの背景（globals.css の --color-ground）。立体の値と一緒に調整する */
 const GROUND = "#d5d1c9";
-type Tune = Grain & { ground: string };
-const DEFAULT: Tune = { ...GRAIN, ground: GROUND };
+type Tune = Silver & { ground: string };
+const DEFAULT: Tune = { ...SILVER, ground: GROUND };
 
 const toHex = (a: number[]) =>
   "#" + a.slice(0, 3).map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255)
@@ -51,10 +52,8 @@ type Swatch = {
 const SWATCHES: Swatch[] = [
   { label: "背景の色", hint: "ページの地",
     get: (g) => g.ground, set: (g, h) => ({ ...g, ground: h }) },
-  { label: "立体の地の色", hint: "暗い面の色",
-    get: (g) => toHex(g.dark), set: (g, h) => ({ ...g, dark: fromHex(h) }) },
-  { label: "立体の白", hint: "光った所の色",
-    get: (g) => toHex(g.light), set: (g, h) => ({ ...g, light: fromHex(h) }) },
+  { label: "本体の色", hint: "金属の色",
+    get: (g) => g.base, set: (g, h) => ({ ...g, base: h }) },
 ];
 
 type Knob = {
@@ -67,65 +66,44 @@ type Knob = {
   set: (g: Tune, v: number) => Tune;
 };
 
-const vec = (i: number) => ({
-  get: (g: Tune) => g.keyDir[i],
-  set: (g: Tune, v: number) => {
-    const d = [...g.keyDir];
-    d[i] = v;
-    return { ...g, keyDir: d };
-  },
-});
-
 const GROUPS: { title: string; knobs: Knob[] }[] = [
   {
-    title: "ざらつき",
+    title: "粒",
     knobs: [
-      { label: "粒の量", hint: "0でなめらか、1で粒だけ", min: 0, max: 1, step: 0.01,
-        get: (g) => g.smooth, set: (g, v) => ({ ...g, smooth: v }) },
-      { label: "細かな揺れ", hint: "画素ごとのざらざら", min: 0, max: 0.1, step: 0.001,
+      { label: "ざらつき", hint: "画素ごとの明るさの揺れ", min: 0, max: 0.15, step: 0.001,
         get: (g) => g.noise, set: (g, v) => ({ ...g, noise: v }) },
+      { label: "白い粒の量", hint: "光った所に散る白い点", min: 0, max: 0.8, step: 0.01,
+        get: (g) => g.dots, set: (g, v) => ({ ...g, dots: v }) },
+      { label: "白い粒が出る所", hint: "小さいほど暗い所にも出る", min: 0, max: 1, step: 0.01,
+        get: (g) => g.dotsFrom, set: (g, v) => ({ ...g, dotsFrom: v }) },
+      { label: "黒い粒の量", hint: "影に散る黒い点", min: 0, max: 0.8, step: 0.01,
+        get: (g) => g.darkDots, set: (g, v) => ({ ...g, darkDots: v }) },
       { label: "粒の大きさ", hint: "画素数", min: 1, max: 4, step: 1,
         get: (g) => g.grainPx, set: (g, v) => ({ ...g, grainPx: v }) },
-      { label: "明るい所の埋まり", hint: "1で白一色", min: 0.5, max: 1, step: 0.01,
-        get: (g) => g.cap, set: (g, v) => ({ ...g, cap: v }) },
-      { label: "暗い所の粒", hint: "暗い面に散らす白い点", min: 0, max: 0.3, step: 0.005,
-        get: (g) => g.floor, set: (g, v) => ({ ...g, floor: v }) },
     ],
   },
   {
-    title: "光沢",
+    title: "金属",
     knobs: [
-      { label: "照りの強さ", hint: "つるっとした照り返し", min: 0, max: 1.5, step: 0.01,
-        get: (g) => g.spec, set: (g, v) => ({ ...g, spec: v }) },
-      { label: "照りの鋭さ", hint: "大きいほど小さく鋭い", min: 2, max: 200, step: 1,
-        get: (g) => g.shine, set: (g, v) => ({ ...g, shine: v }) },
-    ],
-  },
-  {
-    title: "光",
-    knobs: [
-      { label: "主光の強さ", hint: "", min: 0, max: 1.5, step: 0.01,
-        get: (g) => g.key, set: (g, v) => ({ ...g, key: v }) },
-      { label: "主光 左右", hint: "−左 ／ ＋右", min: -1, max: 1, step: 0.01, ...vec(0) },
-      { label: "主光 上下", hint: "−下 ／ ＋上", min: -1, max: 1, step: 0.01, ...vec(1) },
-      { label: "主光 前後", hint: "＋手前から", min: -1, max: 1, step: 0.01, ...vec(2) },
-      { label: "補助光", hint: "左からの弱い光", min: 0, max: 0.6, step: 0.01,
-        get: (g) => g.fill, set: (g, v) => ({ ...g, fill: v }) },
-      { label: "縁の光", hint: "下側の輪郭の白", min: 0, max: 2.5, step: 0.01,
-        get: (g) => g.rim, set: (g, v) => ({ ...g, rim: v }) },
-      { label: "全体の底上げ", hint: "光の当たらない面", min: 0, max: 0.4, step: 0.005,
-        get: (g) => g.ambient, set: (g, v) => ({ ...g, ambient: v }) },
+      { label: "明るさ", hint: "全体の露出", min: -3, max: 0.5, step: 0.01,
+        get: (g) => g.exposure, set: (g, v) => ({ ...g, exposure: v }) },
+      { label: "金属っぽさ", hint: "0で塗装、1で鏡のよう", min: 0, max: 1, step: 0.005,
+        get: (g) => g.metalness, set: (g, v) => ({ ...g, metalness: v }) },
+      { label: "映り込み", hint: "まわりの景色", min: 0, max: 0.6, step: 0.005,
+        get: (g) => g.env, set: (g, v) => ({ ...g, env: v }) },
+      { label: "継ぎ目の暗さ", hint: "小さいほど暗い線", min: 0, max: 1, step: 0.01,
+        get: (g) => g.seam, set: (g, v) => ({ ...g, seam: v }) },
     ],
   },
 ];
 
-type W = { __heroGrain__?: (g: Grain) => void; __heroGrainLast__?: Grain };
+type W = { __heroSilver__?: (g: Silver) => void; __heroSilverLast__?: Silver };
 
 /** 立体へ値を送る。立体がまだ読み込み中なら、読み込み後に立体の側が拾う */
-function push(g: Grain) {
+function push(g: Silver) {
   const w = window as unknown as W;
-  w.__heroGrainLast__ = g;
-  w.__heroGrain__?.(g);
+  w.__heroSilverLast__ = g;
+  w.__heroSilver__?.(g);
 }
 
 /** 既定値から変えたところだけを書き出す */

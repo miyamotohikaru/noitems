@@ -3,8 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 // 実体は動的に読み込む。型だけ静的に借りる
 import type * as THREE_T from "three";
-import { LOOK } from "@/lib/sykim/look";
-import { makeGrainMaterial, setGrain, type Grain } from "@/lib/sykim/grain";
+import { LOOK, applyLook } from "@/lib/sykim/look";
+import {
+  SILVER,
+  addGrain,
+  makeGrainUniforms,
+  setSilver,
+  type Silver,
+} from "@/lib/sykim/silverGrain";
 import { GrainTuner } from "@/components/GrainTuner";
 import { POSES } from "@/lib/sykim/poses";
 import { makeHitTest } from "@/lib/sykim/collide";
@@ -161,38 +167,53 @@ export function HeroObject({
       }
       const model = gltf.scene;
 
-      // ── 素材: 黒い地に白い粒が浮く質感（lib/sykim/grain.ts）。
-      // 銀色の金属（lib/sykim/look.ts の applyLook）から 2026-11-06 に差し替えた。
+      // ── 素材: 銀色の金属（lib/sykim/look.ts）に細かな粒を重ねる（lib/sykim/silverGrain.ts）。
+      // 2026-11-06 に黒い粒子（grain.ts）へ替えたが、11-08 に「最初の銀色がいちばん近い。
+      // そこに少し粒子を」と言われて戻した。
       // あわせて丸棒を「繋がっている順」に集める。めり込み判定がこの並びを使う
-      const grainMat = makeGrainMaterial(THREE);
-      // 継ぎ目は輪が少し張り出している。縁の光を当てると明るい線、
-      // 光を消すと黒い帯になる。本体と同じ光で、縁の光だけ外して馴染ませる
-      const seamMat = makeGrainMaterial(THREE, { rim: 0 });
-      // 調整パネル（URL に ?tune）から値を流し込む口。継ぎ目は縁の光だけ外したまま
-      {
-        const w = window as unknown as {
-          __heroGrain__?: (g: Grain) => void;
-          __heroGrainLast__?: Grain;
-        };
-        w.__heroGrain__ = (g) => {
-          setGrain(grainMat, g);
-          setGrain(seamMat, { ...g, rim: 0 });
-        };
-        if (w.__heroGrainLast__) w.__heroGrain__(w.__heroGrainLast__);
-      }
+      const grainU = makeGrainUniforms();
+      let baseMat: THREE_T.MeshStandardMaterial | null = null;
       const meshes: THREE_T.Mesh[] = [];
       model.traverse((o) => {
         const m = o as THREE_T.Mesh;
-        if (!m.isMesh || !m.material) return;
-        // 部品の継ぎ目も本体と同じ素材にして、線として見せない。
-        // ⚠️ 隠さないこと。継ぎ目は部品のすき間を埋めていて、隠すと地が透けて線になる
-        if (m.name.startsWith("seam")) {
-          m.material = seamMat;
-          return;
+        if (!m.isMesh || !m.material || m.name.startsWith("seam")) return;
+        if (!baseMat) {
+          baseMat = m.material as THREE_T.MeshStandardMaterial;
+          applyLook(THREE, baseMat, L);
+          addGrain(baseMat, grainU);
         }
-        m.material = grainMat;
+        m.material = baseMat!;
+        (m.material as THREE_T.Material).side = THREE.FrontSide;
         meshes.push(m);
       });
+      // 繋ぎ目は本体と同じ金属味で、色だけ少し暗く。粒も同じものを重ねる
+      const seamMats: THREE_T.MeshStandardMaterial[] = [];
+      model.traverse((o) => {
+        const m = o as THREE_T.Mesh;
+        if (!(m.isMesh && m.name.startsWith("seam"))) return;
+        const sm = m.material as THREE_T.MeshStandardMaterial;
+        if (seamMats.includes(sm)) return;
+        seamMats.push(sm);
+        sm.roughness = (L.mat.rough_min + L.mat.rough_max) / 2;
+        addGrain(sm, grainU);
+      });
+      const silverTarget = {
+        body: baseMat! as THREE_T.MeshStandardMaterial,
+        seams: seamMats,
+        u: grainU,
+        renderer,
+        scene,
+      };
+      setSilver(SILVER, silverTarget);
+      // 調整パネル（URL に ?tune）から値を流し込む口
+      {
+        const w = window as unknown as {
+          __heroSilver__?: (s: Silver) => void;
+          __heroSilverLast__?: Silver;
+        };
+        w.__heroSilver__ = (v) => setSilver(v, silverTarget);
+        if (w.__heroSilverLast__) w.__heroSilver__(w.__heroSilverLast__);
+      }
 
       // 関節を J00〜J29 の順に集める
       const found = new Map<string, THREE_T.Object3D>();
@@ -732,7 +753,7 @@ export function HeroObject({
         resetRef.current = null;
         delete (window as unknown as { __resetHeroForm__?: () => void })
           .__resetHeroForm__;
-        delete (window as unknown as { __heroGrain__?: unknown }).__heroGrain__;
+        delete (window as unknown as { __heroSilver__?: unknown }).__heroSilver__;
         renderer.setAnimationLoop(null);
         ro.disconnect();
         pm.dispose();
@@ -769,7 +790,7 @@ export function HeroObject({
         <div aria-hidden className="aspect-square w-full" />
         <img
           src="/img/form-hero.webp"
-          alt="黒い地に白い粒が浮かぶ、用途の定まらないかたち"
+          alt="つや消しの銀色をした、用途の定まらないかたち"
           decoding="async"
           data-ready={ready}
           className="absolute inset-0 h-full w-full data-[ready=true]:opacity-0"
