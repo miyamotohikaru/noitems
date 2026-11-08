@@ -37,6 +37,29 @@ export const SILVER = {
   bump: 0.55,
   /** 光り方のムラ（場所ごとの粗さの違い）。1 で元のまま、0 で均一 */
   mottle: 0.28,
+
+  // ── 引き（スクロールで立体が縮んだとき）の値。
+  // 縮むとラメや凹凸が画面の1点より小さくなって均され、つるつるのCGに見える。
+  // 縮み具合に合わせて、上の値からここの値へ少しずつ移す。
+  // 粒の大きさは縮んだ分だけ自動で大きくする（画面で見た大きさを保つ）
+  /** 引きのラメの量 */
+  farFlake: 0.8,
+  /** 引きのラメの大きさ（1 で近くと同じ。大きいほど粗い粒） */
+  farFlakeSize: 2,
+  /** 引きの表面の凹凸 */
+  farBump: 1,
+  /** 引きの凹凸の大きさ */
+  farBumpSize: 2,
+  /** 引きの光り方のムラ */
+  farMottle: 0.5,
+  /** 引きのざらつき */
+  farNoise: 0.012,
+  /** 引きの白い粒の量 */
+  farDots: 0.02,
+  /** 引きの継ぎ目の暗さ（縮むと継ぎ目が白い線として浮くので、暗めにする） */
+  farSeam: 0.3,
+  /** 引きの明るさ（近くとの差） */
+  farExposure: 0,
 };
 
 // look.ts（元の銀色）の値。ラメと凹凸はこれに掛けて弱める
@@ -45,6 +68,26 @@ const FLAKE_MUL = 4;
 const FLAKE_BUMP = 0.35;
 const BUMP_STR = 0.18917 * 0.02;
 const MICRO = 0.29;
+const FLAKE_SCALE = 5;
+const BUMP_SCALE = 3.2 * 3.3;
+const ROUGH_SCALE = 8.0 * 0.45;
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+/** 縮み具合 f（0=近く、1=いちばん引き）で、近くの値と引きの値を混ぜる */
+function atZoom(s: Silver, f: number) {
+  return {
+    flake: lerp(s.flake, s.farFlake, f),
+    flakeSize: lerp(1, s.farFlakeSize, f),
+    bump: lerp(s.bump, s.farBump, f),
+    bumpSize: lerp(1, s.farBumpSize, f),
+    mottle: lerp(s.mottle, s.farMottle, f),
+    noise: lerp(s.noise, s.farNoise, f),
+    dots: lerp(s.dots, s.farDots, f),
+    seam: lerp(s.seam, s.farSeam, f),
+    exposure: s.exposure + s.farExposure * f,
+  };
+}
 
 export type Silver = typeof SILVER;
 
@@ -63,12 +106,15 @@ export function makeGrainUniforms(s: Silver = SILVER) {
     uBumpStr: { value: 0 },
     uMicro: { value: 0 },
     uRN: { value: 0 },
+    uFlakeScale: { value: FLAKE_SCALE },
+    uBumpScale: { value: BUMP_SCALE },
+    uRoughScale: { value: ROUGH_SCALE },
   };
-  setFlakeBump(u, s);
+  setFlakeBump(u, atZoom(s, 0));
   return u;
 }
 
-function setFlakeBump(u: GrainUniforms, s: Silver) {
+function setFlakeBump(u: GrainUniforms, s: ReturnType<typeof atZoom>) {
   const a = Math.min(1, Math.max(0, s.flake));
   // 0 に近づくほど、粒になるセルが減り、明るさと向きの散らばりも弱まる
   u.uFlakeMin.value = FLAKE_MIN + (0.999 - FLAKE_MIN) * (1 - a);
@@ -77,10 +123,14 @@ function setFlakeBump(u: GrainUniforms, s: Silver) {
   u.uBumpStr.value = BUMP_STR * s.bump;
   u.uMicro.value = MICRO * s.bump;
   u.uRN.value = s.mottle;
+  u.uFlakeScale.value = FLAKE_SCALE / s.flakeSize;
+  u.uBumpScale.value = BUMP_SCALE / s.bumpSize;
+  u.uRoughScale.value = ROUGH_SCALE / s.bumpSize;
 }
 export type GrainUniforms = {
   [K in "uNoise" | "uDots" | "uDotsFrom" | "uDarkDots" | "uGrainPx" | "uFlakeMin"
-    | "uFlakeMul" | "uFlakeBump" | "uBumpStr" | "uMicro" | "uRN"]: { value: number };
+    | "uFlakeMul" | "uFlakeBump" | "uBumpStr" | "uMicro" | "uRN"
+    | "uFlakeScale" | "uBumpScale" | "uRoughScale"]: { value: number };
 };
 
 /** 素材に粒を足す。applyLook のあとに呼ぶ（元の書き換えはそのまま生かす） */
@@ -126,7 +176,10 @@ export function addGrain(mat: THREE_T.Material, u: GrainUniforms) {
   mat.needsUpdate = true;
 }
 
-/** 調整パネルから来た値を当てる */
+/**
+ * 値を当てる。zoom は立体の今の縮み具合（画面での大きさ ÷ 本来の大きさ）。
+ * スクロールで縮むたびに呼ぶ。
+ */
 export function setSilver(
   s: Silver,
   t: {
@@ -136,19 +189,24 @@ export function setSilver(
     renderer: THREE_T.WebGLRenderer;
     scene: THREE_T.Scene;
   },
+  zoom = 1,
 ) {
+  // 0.55 倍まで縮んだら「いちばん引き」とみなす（PC の引きの大きさがこのくらい）
+  const f = Math.min(1, Math.max(0, (1 - zoom) / 0.45));
+  const z = atZoom(s, f);
   t.body.color.set(s.base);
   t.body.metalness = s.metalness;
   for (const m of t.seams) {
-    m.color.copy(t.body.color).multiplyScalar(s.seam);
+    m.color.copy(t.body.color).multiplyScalar(z.seam);
     m.metalness = s.metalness;
   }
-  t.renderer.toneMappingExposure = Math.pow(2, s.exposure);
+  t.renderer.toneMappingExposure = Math.pow(2, z.exposure);
   t.scene.environmentIntensity = s.env;
-  t.u.uNoise.value = s.noise;
-  t.u.uDots.value = s.dots;
+  t.u.uNoise.value = z.noise;
+  t.u.uDots.value = z.dots;
   t.u.uDotsFrom.value = s.dotsFrom;
   t.u.uDarkDots.value = s.darkDots;
-  t.u.uGrainPx.value = s.grainPx;
-  setFlakeBump(t.u, s);
+  // 縮んだ分だけ粒を大きくして、画面で見た大きさを保つ
+  t.u.uGrainPx.value = s.grainPx / Math.max(zoom, 0.2);
+  setFlakeBump(t.u, z);
 }

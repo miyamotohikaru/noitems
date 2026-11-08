@@ -204,14 +204,20 @@ export function HeroObject({
         renderer,
         scene,
       };
-      setSilver(SILVER, silverTarget);
+      // 今の値と、立体の縮み具合。縮むと質感の値を「引き」の値へ寄せる（silverGrain.ts）
+      let silver: Silver = SILVER;
+      let zoom = 1;
+      setSilver(silver, silverTarget, zoom);
       // 調整パネル（URL に ?tune）から値を流し込む口
       {
         const w = window as unknown as {
           __heroSilver__?: (s: Silver) => void;
           __heroSilverLast__?: Silver;
         };
-        w.__heroSilver__ = (v) => setSilver(v, silverTarget);
+        w.__heroSilver__ = (v) => {
+          silver = v;
+          setSilver(silver, silverTarget, zoom);
+        };
         if (w.__heroSilverLast__) w.__heroSilver__(w.__heroSilverLast__);
       }
 
@@ -735,6 +741,16 @@ export function HeroObject({
           }
         }
         pivot.rotation.y = spinAngle + scrollAngle;
+        // 外側の CSS で縮められている割合を測る（canvas の大きさは変えていない）
+        {
+          const zr = el.offsetWidth
+            ? el.getBoundingClientRect().width / el.offsetWidth
+            : 1;
+          if (Math.abs(zr - zoom) > 0.004) {
+            zoom = zr;
+            setSilver(silver, silverTarget, zoom);
+          }
+        }
         pivot.rotation.x = 0;
         renderer.render(scene, camera);
       });
