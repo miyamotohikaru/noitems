@@ -22,9 +22,9 @@ export const SILVER = {
   /** まわりの景色の映り込み */
   env: 0.18,
   /** 粒の濃さ（画素ごとの明るさの揺れ） */
-  noise: 0.003,
+  noise: 0,
   /** 白い粒の量 */
-  dots: 0.01,
+  dots: 0,
   /** 白い粒が出はじめる明るさ（0〜1。小さいほど暗い所にも出る） */
   dotsFrom: 1,
   /** 黒い粒の量（影に散らす） */
@@ -43,19 +43,19 @@ export const SILVER = {
   // 縮み具合に合わせて、上の値からここの値へ少しずつ移す。
   // 粒の大きさは縮んだ分だけ自動で大きくする（画面で見た大きさを保つ）
   /** 引きのラメの量 */
-  farFlake: 0.8,
+  farFlake: 0.6,
   /** 引きのラメの大きさ（1 で近くと同じ。大きいほど粗い粒） */
   farFlakeSize: 2,
   /** 引きの表面の凹凸 */
-  farBump: 1,
+  farBump: 0.8,
   /** 引きの凹凸の大きさ */
   farBumpSize: 2,
   /** 引きの光り方のムラ */
-  farMottle: 0.5,
+  farMottle: 0.4,
   /** 引きのざらつき */
-  farNoise: 0.012,
+  farNoise: 0.006,
   /** 引きの白い粒の量 */
-  farDots: 0.02,
+  farDots: 0.01,
   /** 引きの継ぎ目の暗さ（縮むと継ぎ目が白い線として浮くので、暗めにする） */
   farSeam: 0.3,
   /** 引きの明るさ（近くとの差） */
@@ -177,8 +177,12 @@ export function addGrain(mat: THREE_T.Material, u: GrainUniforms) {
 }
 
 /**
- * 値を当てる。zoom は立体の今の縮み具合（画面での大きさ ÷ 本来の大きさ）。
- * スクロールで縮むたびに呼ぶ。
+ * 値を当てる。
+ * zoom = 外側の CSS で縮められている割合（スクロールで引くと小さくなる）。
+ * cam  = カメラの寄り具合（畳まれた姿のときを 1 とし、ほどけて伸びた姿を収めようと
+ *        カメラが下がるほど小さくなる）。
+ * どちらでも立体は画面の中で小さくなり、ラメや凹凸が1点より細かくなって均される。
+ * 2つを掛けた「画面で見た大きさ」で値を決める。
  */
 export function setSilver(
   s: Silver,
@@ -190,10 +194,17 @@ export function setSilver(
     scene: THREE_T.Scene;
   },
   zoom = 1,
+  cam = 1,
 ) {
-  // 0.55 倍まで縮んだら「いちばん引き」とみなす（PC の引きの大きさがこのくらい）
-  const f = Math.min(1, Math.max(0, (1 - zoom) / 0.45));
+  const eff = Math.max(zoom * cam, 0.05);
+  // 0.55 倍まで小さくなったら「いちばん引き」とみなす（PC の引きの大きさがこのくらい）
+  const f = Math.min(1, Math.max(0, (1 - eff) / 0.45));
   const z = atZoom(s, f);
+  // それより小さくなったら、ラメと凹凸を粗くして、画面で見た大きさを保つ。
+  // 小さくなった分そのままだと粗すぎるので、少し控えめにする（0.75 乗）
+  const extra = Math.pow(Math.max(1, 0.55 / eff), 0.75);
+  z.flakeSize *= extra;
+  z.bumpSize *= extra;
   t.body.color.set(s.base);
   t.body.metalness = s.metalness;
   for (const m of t.seams) {
@@ -206,7 +217,7 @@ export function setSilver(
   t.u.uDots.value = z.dots;
   t.u.uDotsFrom.value = s.dotsFrom;
   t.u.uDarkDots.value = s.darkDots;
-  // 縮んだ分だけ粒を大きくして、画面で見た大きさを保つ
+  // 粒は画面に描く点なので、CSS で縮んだ分だけ大きくする（カメラの寄りは関係ない）
   t.u.uGrainPx.value = s.grainPx / Math.max(zoom, 0.2);
   setFlakeBump(t.u, z);
 }

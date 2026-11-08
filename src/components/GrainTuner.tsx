@@ -18,7 +18,7 @@ import { SILVER, type Silver } from "@/lib/sykim/silverGrain";
 const STORE = "noitems-silver-tune";
 
 /** ページの背景（globals.css の --color-ground）。立体の値と一緒に調整する */
-const GROUND = "#d5d1c9";
+const GROUND = "#d9d7d3";
 type Tune = Silver & { ground: string };
 const DEFAULT: Tune = { ...SILVER, ground: GROUND };
 

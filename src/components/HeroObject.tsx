@@ -207,7 +207,8 @@ export function HeroObject({
       // 今の値と、立体の縮み具合。縮むと質感の値を「引き」の値へ寄せる（silverGrain.ts）
       let silver: Silver = SILVER;
       let zoom = 1;
-      setSilver(silver, silverTarget, zoom);
+      let cam = 1;
+      setSilver(silver, silverTarget, zoom, cam);
       // 調整パネル（URL に ?tune）から値を流し込む口
       {
         const w = window as unknown as {
@@ -216,7 +217,7 @@ export function HeroObject({
         };
         w.__heroSilver__ = (v) => {
           silver = v;
-          setSilver(silver, silverTarget, zoom);
+          setSilver(silver, silverTarget, zoom, cam);
         };
         if (w.__heroSilverLast__) w.__heroSilver__(w.__heroSilverLast__);
       }
@@ -281,6 +282,8 @@ export function HeroObject({
         return (r / Math.sin((camera.fov * Math.PI) / 360)) * MARGIN;
       };
       let curDist = fitDistance();
+      // 畳まれた姿のときのカメラの距離。質感の粗さを決める基準にする
+      const dist0 = curDist;
       const place = () => {
         camera.position.copy(dir).multiplyScalar(curDist);
         camera.lookAt(0, 0, 0);
@@ -746,9 +749,11 @@ export function HeroObject({
           const zr = el.offsetWidth
             ? el.getBoundingClientRect().width / el.offsetWidth
             : 1;
-          if (Math.abs(zr - zoom) > 0.004) {
+          const cr = Math.min(1, dist0 / curDist);
+          if (Math.abs(zr - zoom) > 0.004 || Math.abs(cr - cam) > 0.004) {
             zoom = zr;
-            setSilver(silver, silverTarget, zoom);
+            cam = cr;
+            setSilver(silver, silverTarget, zoom, cam);
           }
         }
         pivot.rotation.x = 0;
