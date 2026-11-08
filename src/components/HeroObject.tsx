@@ -737,6 +737,7 @@ export function HeroObject({
           settledIn = total;
         }
         autoHoldAt = window.scrollY;
+        autoResumeAt = null; // 3秒待ちの途中でもう一度押されたら、数え直す
         // いちばん近い正面へ。行きすぎず戻りすぎず、最短で合わせる。
         // 見えている向きは「戻しの角度＋スクロールぶん」なので、その合計が正面に来るようにする
         spinFrom = spinAngle;
@@ -770,9 +771,12 @@ export function HeroObject({
       const scrollTarget = () =>
         (window.scrollY / Math.max(1, window.innerHeight) + autoScreens) *
         SCROLL_TURN;
-      // 「はじめのかたちに戻す」を押したら、次にスクロールするまでひとりでには動かさない
-      // （押した直後にまたほどけ出すと、戻した意味がなくなる）
+      // 「はじめのかたちに戻す」を押したら、戻り終わってから3秒は、ひとりでには動かさない
+      // （押した直後にまたほどけ出すと、戻した意味がなくなる）。
+      // 3秒たつか、その前にスクロールしたら、また動き出す（2026-11-08 ユーザー指定）
+      const AUTO_RESUME_AFTER = 3;
       let autoHoldAt: number | null = null;
+      let autoResumeAt: number | null = null;
       let scrollAngle = scrollTarget();
       let lastT = performance.now() / 1000;
 
@@ -784,8 +788,14 @@ export function HeroObject({
         // 回転も関節も、スクロールに少し遅れて追いつく（約0.4秒で8割）。
         // 指やホイールの刻みでカクつかず、止めたあとは惰性で落ち着いて止まる
         const k = 1 - Math.exp(-dt * 4);
-        if (autoHoldAt !== null && Math.abs(window.scrollY - autoHoldAt) > 2)
+        if (
+          autoHoldAt !== null &&
+          (Math.abs(window.scrollY - autoHoldAt) > 2 ||
+            (autoResumeAt !== null && nowSec >= autoResumeAt))
+        ) {
           autoHoldAt = null;
+          autoResumeAt = null;
+        }
         if (heroMotion.settled && !resetLeg && autoHoldAt === null)
           autoScreens += dt * heroMotion.autoSpeed;
         motion += (motionTarget() - motion) * k;
@@ -803,6 +813,7 @@ export function HeroObject({
           if (lt >= resetLeg.total) {
             resetLeg = null;
             anchor(motion);
+            if (autoHoldAt !== null) autoResumeAt = nowSec + AUTO_RESUME_AFTER;
           }
         } else {
           poseAt(motion);
