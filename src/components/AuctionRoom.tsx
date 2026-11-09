@@ -1,5 +1,6 @@
 "use client";
 
+import { Card } from "./Card";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AuctionState } from "@/lib/auction/types";
 import { fetchAuction, newRequestId, postBid } from "@/lib/auctionClient";
@@ -132,6 +133,8 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
 
   return (
     <>
+      {/* スマホでは下から重なってくるカードにする。追い越したあとの控えの帯は、カードの外に置く */}
+      <Card no="01" label="入札">
       <section id="auction" className="relative">
         <div className="page pt-[clamp(3.5rem,8vw,7rem)] pb-[clamp(3rem,6vw,5rem)]">
           {/* 読み上げ専用。ここ以外にライブリージョンを置かない */}
@@ -343,6 +346,7 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
           )}
         </div>
       </section>
+      </Card>
 
       {/* 追い越したあとの控え */}
       <div

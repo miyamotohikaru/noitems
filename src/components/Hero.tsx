@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { hero, site } from "@/lib/lot";
 import { Bracket } from "./Bracket";
 import { HeroObject, ResetFormButton } from "./HeroObject";
-import { heroLayout, heroMotion } from "@/lib/sykim/motion";
+import { heroLayout, heroMotion, mobileLayout } from "@/lib/sykim/motion";
 
 /**
  * スマホ幅かどうか。
@@ -71,6 +71,8 @@ export function Hero() {
     let raf = 0;
     const update = () => {
       raf = 0;
+      // スマホは最初の場面の長さを調整パネルから変えられる（motion.ts の MOBILE）
+      sec.style.height = isMobile ? `${mobileLayout.length}svh` : "";
       const vw = stage.clientWidth;
       const vh = stage.clientHeight;
       const r = sec.getBoundingClientRect();
@@ -84,19 +86,22 @@ export function Hero() {
         parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
       let endW: number;
       let endX: number;
-      const endY = vh / 2;
+      let endY = vh / 2;
+      let startScale = heroLayout.startScale;
       if (isMobile) {
-        // これまでのスマホの大きさ（幅の132%）に合わせる
-        endW = vw * 1.32;
-        endX = vw / 2;
+        // 大きさは幅の132%を1として、位置は画面の割合で、調整パネルから動かす
+        endW = vw * 1.32 * mobileLayout.endScale;
+        endX = vw * mobileLayout.endX;
+        endY = vh * mobileLayout.endY;
+        startScale = mobileLayout.startScale;
       } else {
         // これまでのデスクトップの置き方（右寄せ・幅 min(64vw, 55rem)）に合わせる
         endW = Math.min(vw * 0.64, 55 * rem);
         const right = vw >= 1536 ? 7 * rem : 3 * rem;
         endX = vw - right - endW / 2;
+        endW *= heroLayout.endScale;
       }
-      endW *= heroLayout.endScale;
-      const s = lerp(heroLayout.startScale, endW / startW, a);
+      const s = lerp(startScale, endW / startW, a);
       const x = lerp(vw / 2, endX, a) - vw / 2;
       const y = lerp(vh / 2, endY, a) - vh / 2;
       obj.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${s})`;

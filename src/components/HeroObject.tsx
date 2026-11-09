@@ -13,7 +13,7 @@ import {
   type Silver,
 } from "@/lib/sykim/silverGrain";
 import { GrainTuner } from "@/components/GrainTuner";
-import { heroMotion } from "@/lib/sykim/motion";
+import { heroMotion, heroTurn, mobileLayout } from "@/lib/sykim/motion";
 import { POSES } from "@/lib/sykim/poses";
 import { makeHitTest } from "@/lib/sykim/collide";
 
@@ -773,10 +773,12 @@ export function HeroObject({
        * （1周、0.4周と試して、どちらもスクロールに対して速すぎた）
        * スクロールしていないときは回さない（自転はしない）。
        */
-      const SCROLL_TURN = TAU * 0.15; // 画面の高さ1つぶんで回る角度
+      // 画面の高さ1つぶんで回る角度。スマホは最初の場面が短いので、別の速さにできる（motion.ts）
+      const phone = matchMedia("(max-width: 767px)");
+      const turnPerScreen = () => TAU * (phone.matches ? mobileLayout.turn : heroTurn.pc);
       const scrollTarget = () =>
         (window.scrollY / Math.max(1, window.innerHeight) + autoScreens) *
-        SCROLL_TURN;
+        turnPerScreen();
       // 「はじめのかたちに戻す」を押したら、戻り終わってから2秒は、ひとりでには動かさない
       // （押した直後にまたほどけ出すと、戻した意味がなくなる）。
       // 2秒たつか、その前にスクロールしたら、また動き出す（2026-11-09 ユーザー指定。最初は3秒）
@@ -813,6 +815,9 @@ export function HeroObject({
           return true;
         for (const n of tg.childNodes)
           if (n.nodeType === 3 && n.textContent?.trim()) return true;
+        // スマホの重なってくるカード（地は疑似要素なので、下の色の判定では拾えない）
+        const card = tg.closest(".card-m");
+        if (card && getComputedStyle(card).position === "sticky") return true;
         for (let x: Element | null = tg; x && x !== document.body && x !== root; x = x.parentElement) {
           const cs = getComputedStyle(x);
           const bg = cs.backgroundColor;

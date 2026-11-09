@@ -61,7 +61,7 @@ export function LotPlate() {
 
 export function Concept() {
   return (
-    <section id="concept" className="bg-sheet">
+    <section id="concept" className="md:bg-sheet">
       <div className="page py-[var(--gap-major)]">
         <SectionHead>{concept.heading}</SectionHead>
         {/* 2段に割ると1段26字になり、行末に「ん。」だけが落ちる。単段45字で組む */}
@@ -128,7 +128,7 @@ export function Forms() {
 export function Details() {
   const [first, second] = details.plates;
   return (
-    <section className="bg-ground-lift">
+    <section className="md:bg-ground-lift">
       <div className="page py-[var(--gap-major)]">
         <SectionHead>{details.heading}</SectionHead>
 
@@ -185,7 +185,7 @@ export function Details() {
 
 export function Faq() {
   return (
-    <section id="details" className="bg-sheet">
+    <section id="details" className="md:bg-sheet">
       <div className="page pt-[var(--gap-minor)] pb-[var(--gap-major)]">
         <SectionHead>{faq.heading}</SectionHead>
         {/* 罫の右端を組みの右端に揃える（20rem + 3.5rem + 36rem） */}

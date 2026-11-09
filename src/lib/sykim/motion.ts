@@ -31,3 +31,49 @@ export const heroLayout = {
   startScale: START_SCALE,
   endScale: END_SCALE,
 };
+
+/**
+ * スマホの配置（2026-11-09「携帯用のデザインや位置の配置を微調整できるようにして欲しい」）。
+ * 調整パネルの「スマホの配置」から動かす。PC には効かない。
+ */
+export const MOBILE = {
+  /** 立体だけが映る最初の場面の長さ（画面の高さの何%ぶんスクロールするか）。元は 340 */
+  length: 200,
+  /** はじめの大きさ（1 で画面の短い辺の 1.7 倍の枠） */
+  startScale: 0.8,
+  /** 引いたときの大きさ（1 で幅の132%） */
+  endScale: 1,
+  /** 引いたときの横の位置（0 で左端、0.5 で真ん中、1 で右端） */
+  endX: 0.5,
+  /** 引いたときの縦の位置（0 で上端、0.5 で真ん中、1 で下端） */
+  endY: 0.5,
+  /** スクロールで回る速さ（画面の高さ1つぶんで何周するか）。PC は 0.15 */
+  turn: 0.3,
+};
+export const mobileLayout = { ...MOBILE };
+
+/** PC のスクロールで回る速さ（画面の高さ1つぶんで何周するか） */
+export const TURN = 0.15;
+export const heroTurn = { pc: TURN };
+
+/**
+ * スマホで、項目を重なってくるカードにしたときの見た目（2026-11-09）。
+ * カードの地は半透明にして、後ろの立体がうっすら透けるようにする（立体は最後まで背景にいる）。
+ */
+export const CARD = {
+  /** 地の濃さ（1 で透けない） */
+  alpha: 0.88,
+  /** 後ろのぼかし（px） */
+  blur: 14,
+  /** 上の角の丸み（px）。キービジュアルに角丸が無いので 0 から */
+  radius: 0,
+  /** 上の縁の影の濃さ */
+  shadow: 0.3,
+};
+export function applyCard(c: typeof CARD) {
+  const s = document.documentElement.style;
+  s.setProperty("--card-alpha", String(c.alpha));
+  s.setProperty("--card-blur", `${c.blur}px`);
+  s.setProperty("--card-radius", `${c.radius}px`);
+  s.setProperty("--card-shadow", String(c.shadow));
+}

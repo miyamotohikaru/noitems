@@ -242,6 +242,60 @@
   .link-ul:hover {
     background-size: 100% 1px;
   }
+
+  /* スマホの、下から重なってくるカード（components/Card.tsx）。PC ではただの囲み */
+  .card-m-tab {
+    display: none;
+  }
+  @media (max-width: 767px) {
+    .card-m {
+      position: sticky;
+      /* 後から来たカードが、前のカードの中身より必ず上に重なるように */
+      isolation: isolate;
+      border-top: 1px solid var(--rule-firm);
+      border-radius: var(--card-radius, 0px) var(--card-radius, 0px) 0 0;
+      box-shadow: 0 -24px 40px -30px rgb(22 19 15 / var(--card-shadow, 0.3));
+    }
+    /* 地とぼかしは疑似要素に載せる。カード自身に backdrop-filter を掛けると、
+       中にある position: fixed の要素がカードの中に閉じ込められる */
+    .card-m::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      border-radius: inherit;
+      background: color-mix(
+        in srgb,
+        var(--color-ground) calc(var(--card-alpha, 0.88) * 100%),
+        transparent
+      );
+      -webkit-backdrop-filter: blur(var(--card-blur, 14px));
+      backdrop-filter: blur(var(--card-blur, 14px));
+    }
+    /* 項目名。カードを読んでいるあいだ、上の帯のすぐ下に残る */
+    .card-m-tab {
+      position: sticky;
+      top: var(--nav-h);
+      z-index: 2;
+      display: flex;
+      align-items: baseline;
+      gap: 0.9rem;
+      padding: 0.95rem var(--spacing-gutter) 0.85rem;
+      border-top-left-radius: inherit;
+      border-top-right-radius: inherit;
+      border-bottom: 1px solid var(--rule);
+      font-size: 0.6875rem;
+      letter-spacing: 0.2em;
+      color: rgb(22 19 15 / 0.72);
+      background: color-mix(
+        in srgb,
+        var(--color-ground) calc(max(var(--card-alpha, 0.88), 0.9) * 100%),
+        transparent
+      );
+      -webkit-backdrop-filter: blur(var(--card-blur, 14px));
+      backdrop-filter: blur(var(--card-blur, 14px));
+    }
+  }
 }
 
 @layer utilities {

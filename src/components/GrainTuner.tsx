@@ -5,10 +5,16 @@ import { createPortal } from "react-dom";
 import { SILVER, type Silver } from "@/lib/sykim/silverGrain";
 import {
   AUTO_SPEED,
+  CARD,
   END_SCALE,
+  MOBILE,
   START_SCALE,
+  TURN,
+  applyCard,
   heroLayout,
   heroMotion,
+  heroTurn,
+  mobileLayout,
 } from "@/lib/sykim/motion";
 
 /**
@@ -28,11 +34,23 @@ const STORE = "noitems-silver-tune";
 const GROUND = "#d9d7d3";
 // autoSpeed は lib/sykim/motion.ts の AUTO_SPEED（引ききったあと、ひとりでに動く速さ）
 // startScale / endScale も motion.ts（立体の大きさ）
+// m* はスマホの配置、card* はスマホのカード、turn は PC の回る速さ（どれも motion.ts）
 type Tune = Silver & {
   ground: string;
   autoSpeed: number;
   startScale: number;
   endScale: number;
+  turn: number;
+  mLength: number;
+  mStart: number;
+  mEnd: number;
+  mX: number;
+  mY: number;
+  mTurn: number;
+  cardAlpha: number;
+  cardBlur: number;
+  cardRadius: number;
+  cardShadow: number;
 };
 const DEFAULT: Tune = {
   ...SILVER,
@@ -40,16 +58,36 @@ const DEFAULT: Tune = {
   autoSpeed: AUTO_SPEED,
   startScale: START_SCALE,
   endScale: END_SCALE,
+  turn: TURN,
+  mLength: MOBILE.length,
+  mStart: MOBILE.startScale,
+  mEnd: MOBILE.endScale,
+  mX: MOBILE.endX,
+  mY: MOBILE.endY,
+  mTurn: MOBILE.turn,
+  cardAlpha: CARD.alpha,
+  cardBlur: CARD.blur,
+  cardRadius: CARD.radius,
+  cardShadow: CARD.shadow,
 };
 
 /** 動きと大きさを当てる（質感以外） */
 function applyMotion(g: Tune) {
   heroMotion.autoSpeed = g.autoSpeed;
-  if (heroLayout.startScale !== g.startScale || heroLayout.endScale !== g.endScale) {
-    heroLayout.startScale = g.startScale;
-    heroLayout.endScale = g.endScale;
-    window.dispatchEvent(new Event("hero-layout"));
-  }
+  heroTurn.pc = g.turn;
+  heroLayout.startScale = g.startScale;
+  heroLayout.endScale = g.endScale;
+  Object.assign(mobileLayout, {
+    length: g.mLength,
+    startScale: g.mStart,
+    endScale: g.mEnd,
+    endX: g.mX,
+    endY: g.mY,
+    turn: g.mTurn,
+  });
+  applyCard({ alpha: g.cardAlpha, blur: g.cardBlur, radius: g.cardRadius, shadow: g.cardShadow });
+  // Hero に置き直させる（大きさ・位置・最初の場面の長さ）
+  window.dispatchEvent(new Event("hero-layout"));
 }
 
 const toHex = (a: number[]) =>
@@ -132,6 +170,38 @@ const GROUPS: { title: string; knobs: Knob[] }[] = [
     knobs: [
       { label: "ひとりでに動く速さ", hint: "引ききったあと。0で止まる", min: 0, max: 2, step: 0.01,
         get: (g) => g.autoSpeed, set: (g, v) => ({ ...g, autoSpeed: v }) },
+      { label: "回る速さ（PC）", hint: "画面1つぶんのスクロールで何周", min: 0, max: 1, step: 0.01,
+        get: (g) => g.turn, set: (g, v) => ({ ...g, turn: v }) },
+    ],
+  },
+  {
+    title: "スマホの配置（スマホで開いたときだけ効く）",
+    knobs: [
+      { label: "最初の場面の長さ", hint: "立体だけが映るあいだ。画面の高さの%", min: 110, max: 440, step: 5,
+        get: (g) => g.mLength, set: (g, v) => ({ ...g, mLength: v }) },
+      { label: "はじめの大きさ", hint: "1で画面の短い辺の1.7倍", min: 0.3, max: 1.4, step: 0.01,
+        get: (g) => g.mStart, set: (g, v) => ({ ...g, mStart: v }) },
+      { label: "引いたときの大きさ", hint: "1で幅の132%", min: 0.3, max: 1.8, step: 0.01,
+        get: (g) => g.mEnd, set: (g, v) => ({ ...g, mEnd: v }) },
+      { label: "引いたときの横の位置", hint: "0で左端、0.5で真ん中", min: -0.2, max: 1.2, step: 0.01,
+        get: (g) => g.mX, set: (g, v) => ({ ...g, mX: v }) },
+      { label: "引いたときの縦の位置", hint: "0で上端、0.5で真ん中", min: -0.2, max: 1.2, step: 0.01,
+        get: (g) => g.mY, set: (g, v) => ({ ...g, mY: v }) },
+      { label: "回る速さ", hint: "画面1つぶんのスクロールで何周", min: 0, max: 1.5, step: 0.01,
+        get: (g) => g.mTurn, set: (g, v) => ({ ...g, mTurn: v }) },
+    ],
+  },
+  {
+    title: "カード（スマホ）",
+    knobs: [
+      { label: "地の濃さ", hint: "1で透けない。下げると後ろの立体が透ける", min: 0.3, max: 1, step: 0.01,
+        get: (g) => g.cardAlpha, set: (g, v) => ({ ...g, cardAlpha: v }) },
+      { label: "後ろのぼかし", hint: "px", min: 0, max: 40, step: 1,
+        get: (g) => g.cardBlur, set: (g, v) => ({ ...g, cardBlur: v }) },
+      { label: "上の角の丸み", hint: "px", min: 0, max: 32, step: 1,
+        get: (g) => g.cardRadius, set: (g, v) => ({ ...g, cardRadius: v }) },
+      { label: "上の縁の影", hint: "", min: 0, max: 1, step: 0.01,
+        get: (g) => g.cardShadow, set: (g, v) => ({ ...g, cardShadow: v }) },
     ],
   },
   {
