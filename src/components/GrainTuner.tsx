@@ -346,7 +346,13 @@ export function GrainTuner() {
               <SwatchRow key={sw.label} s={sw} g={g} onChange={update} />
             ))}
           </fieldset>
-          {GROUPS.map((grp) => (
+          {/* スマホで開いたときは、スマホの配置とカードのつまみを先に出す（探さずに済むように） */}
+          {(matchMedia("(max-width: 767px)").matches
+            ? [...GROUPS].sort(
+                (a, b) => +b.title.includes("スマホ") - +a.title.includes("スマホ"),
+              )
+            : GROUPS
+          ).map((grp) => (
             <fieldset key={grp.title} className="mb-2">
               <legend className="mb-1 text-black/50">{grp.title}</legend>
               {grp.knobs.map((k) => {
