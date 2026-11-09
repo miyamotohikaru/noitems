@@ -787,15 +787,17 @@ export function HeroObject({
       let lastT = performance.now() / 1000;
 
       /**
-       * 触って動かす（2026-11-09「自分で触ったら動かすこともできるようにしたい」。見比べ中）。
-       *   ?touch=1 … つかんで回す。離すと惰性で少し回って止まる。ひとりでに動くのは続ける
-       *   ?touch=2 … つかんだ部品を、そのすぐ手前の関節で曲げる。ぶつかる手前で止まる
+       * 触って動かす（2026-11-09「自分で触ったら動かすこともできるようにしたい」）。
+       *   ふだん   … つかんだ部品を、そのすぐ手前の関節で曲げる。ぶつかる手前で止まる
+       *              （2案を見比べて、ユーザーがこちらに決めた）
+       *   ?touch=1 … 見比べ用に残した案。つかんで回す。離すと惰性で少し回って止まる
+       *   ?touch=0 … 触っても動かない
        * スマホでは縦の指の動きはスクロールに残し、横に動かしたときだけ受け取る。
        * ボタンやリンクの上で押したときは、そちらを優先する。
        */
       const touchMode = new URLSearchParams(location.search).get("touch");
       const SPIN = touchMode === "1";
-      const BEND = touchMode === "2";
+      const BEND = touchMode !== "1" && touchMode !== "0";
       const surface: HTMLElement = stage ?? el;
       const ray = new THREE.Raycaster();
       const ndc = new THREE.Vector2();
