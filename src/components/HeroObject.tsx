@@ -630,9 +630,12 @@ export function HeroObject({
       // 引ききったあと、ひとりでに進んだぶん（画面の高さ何個ぶんのスクロールに当たるか）。
       // スクロールで進んだぶんに足す。巻き戻すと、ここから逆再生になる
       let autoScreens = 0;
+      // 手で曲げた手順を帯に織り込んだぶん、帯の上で先へ進める量（回転には足さない）
+      let motionOffset = 0;
       const motionTarget = () =>
         (window.scrollY / Math.max(1, window.innerHeight) + autoScreens) *
-        MOTION_PER_SCREEN;
+          MOTION_PER_SCREEN +
+        motionOffset;
       const legEnd = (l: Leg) => l.start + l.plan.total;
       const legs: Leg[] = [];
       /** 畳まれた塊を置いた motion の位置（「戻す」で巻き戻す先） */
@@ -720,6 +723,8 @@ export function HeroObject({
       // 戻し終わったら、その位置を新しい起点にして帯を張り直す
       const doReset = () => {
         if (resetLeg) return;
+        // 触っている途中なら、そこまでを確定してから戻す
+        endTouch();
         const t0 = performance.now() / 1000;
         // 形によっては、ぶつからずに畳む道筋が見つからない（以前はそのとき何も起きなかった）。
         // 静かな戻し方 → ふつうの戻し方 → 巻き戻し、の順に試す
@@ -738,6 +743,7 @@ export function HeroObject({
         }
         autoHoldAt = window.scrollY;
         autoResumeAt = null; // 2秒待ちの途中でもう一度押されたら、数え直す
+        spinVel = 0;
         // いちばん近い正面へ。行きすぎず戻りすぎず、最短で合わせる。
         // 見えている向きは「戻しの角度＋スクロールぶん」なので、その合計が正面に来るようにする
         spinFrom = spinAngle;
@@ -780,6 +786,263 @@ export function HeroObject({
       let scrollAngle = scrollTarget();
       let lastT = performance.now() / 1000;
 
+      /**
+       * 触って動かす（2026-11-09「自分で触ったら動かすこともできるようにしたい」。見比べ中）。
+       *   ?touch=1 … つかんで回す。離すと惰性で少し回って止まる。ひとりでに動くのは続ける
+       *   ?touch=2 … つかんだ部品を、そのすぐ手前の関節で曲げる。ぶつかる手前で止まる
+       * スマホでは縦の指の動きはスクロールに残し、横に動かしたときだけ受け取る。
+       * ボタンやリンクの上で押したときは、そちらを優先する。
+       */
+      const touchMode = new URLSearchParams(location.search).get("touch");
+      const SPIN = touchMode === "1";
+      const BEND = touchMode === "2";
+      const surface: HTMLElement = stage ?? el;
+      const ray = new THREE.Raycaster();
+      const ndc = new THREE.Vector2();
+      const pick = (cx: number, cy: number) => {
+        const r = el.getBoundingClientRect();
+        ndc.set(
+          ((cx - r.left) / (r.width || 1)) * 2 - 1,
+          -((cy - r.top) / (r.height || 1)) * 2 + 1,
+        );
+        pivot.updateMatrixWorld(true);
+        ray.setFromCamera(ndc, camera);
+        return ray.intersectObject(model, true)[0] ?? null;
+      };
+      /** 画面上の位置（canvas の左上から何px） */
+      const toScreen = (v: THREE_T.Vector3, out: THREE_T.Vector2) => {
+        const r = el.getBoundingClientRect();
+        const p = v.clone().project(camera);
+        return out.set(((p.x + 1) / 2) * r.width, ((1 - p.y) / 2) * r.height);
+      };
+
+      // ── 回す
+      let spinVel = 0; // 離したあとの惰性（ラジアン/秒）
+      let tilt = 0; // 上下の傾き。離すとゆっくり水平へ戻る
+      let spinDrag: { x: number; y: number; t: number; touch: boolean } | null = null;
+      const spinPerPx = () => (Math.PI * 2) / Math.max(600, surface.clientWidth);
+
+      // ── 曲げる
+      type BendMove = { i: number; delta: number };
+      /** 曲げ始めた帯の位置・そのときの姿・曲げた手順（どれもぶつからないと確かめた動き） */
+      let bend: { v0: number; from: number[]; log: BendMove[] } | null = null;
+      let bendGrab: { i: number; local: THREE_T.Vector3; x: number; y: number } | null = null;
+      /** 離したあと、45度の刻みへ収める動き */
+      let snap: { i: number; from: number; to: number; t0: number } | null = null;
+      const SNAP_DUR = 0.22;
+      const axisW = new THREE.Vector3();
+      const jointW = new THREE.Vector3();
+      const grabW = new THREE.Vector3();
+      const sa = new THREE.Vector2();
+      const sb = new THREE.Vector2();
+      /** 関節 i を、いまの角度から delta 度ぶん回す。ぶつかる手前で止め、実際に回せた量を返す */
+      const turnJoint = (i: number, delta: number) => {
+        const start = cur[i];
+        const steps = Math.max(1, Math.ceil(Math.abs(delta) / SWEEP));
+        let ok = 0;
+        for (let n = 1; n <= steps; n++) {
+          cur[i] = start + (delta * n) / steps;
+          setPose();
+          if (hits()) break;
+          ok = n;
+        }
+        cur[i] = start + (delta * ok) / steps;
+        setPose();
+        return cur[i] - start;
+      };
+      /** 曲げた手順を帯に織り込む。曲げ始めた位置から先を「曲げた手順 → その先」に張り替える */
+      const commitBend = () => {
+        if (!bend) return;
+        if (snap) {
+          bend.log.push({ i: snap.i, delta: cur[snap.i] - snap.from });
+          snap = null;
+        }
+        const { v0, from, log } = bend;
+        bend = null;
+        bendGrab = null;
+        // 同じ関節が続いた分はまとめる（行って戻った範囲は確かめ済みなので、まとめても安全）
+        const moves: BendMove[] = [];
+        for (const m of log) {
+          const last = moves[moves.length - 1];
+          if (last && last.i === m.i) last.delta += m.delta;
+          else moves.push({ ...m });
+        }
+        const real = moves.filter((m) => Math.abs(m.delta) > 0.01);
+        if (!real.length) return;
+        // 曲げ始めた位置で帯を切る
+        let k = 0;
+        for (let n = 0; n < legs.length; n++) if (legs[n].start <= v0) k = n;
+        legs.length = k + 1;
+        const leg = legs[k];
+        const lt0 = Math.min(Math.max(v0 - leg.start, 0), leg.plan.total);
+        leg.plan = {
+          ...leg.plan,
+          to: from.slice(),
+          settled: Math.min(leg.plan.settled, lt0),
+          total: lt0,
+        };
+        leg.toIndex = -1;
+        // 1つの区間に同じ関節は1回まで（schedule の作り）。重なったら区間を分ける
+        let t = legEnd(leg);
+        let st = from.slice();
+        let chunk: BendMove[] = [];
+        const flush = () => {
+          if (!chunk.length) return;
+          const to = st.slice();
+          for (const m of chunk) to[m.i] += m.delta;
+          const p = schedule(chunk, st, to, true, 3);
+          legs.push({ start: t, plan: p, fromIndex: -1, toIndex: -1 });
+          t += p.total;
+          st = to;
+          chunk = [];
+        };
+        for (const m of real) {
+          if (chunk.some((c) => c.i === m.i)) flush();
+          chunk.push(m);
+        }
+        flush();
+        // 帯の上で、いまの姿（曲げ終わり）の位置へ移る
+        motionOffset += t - motionTarget();
+        motion = t;
+        // 離してから少し待って、またひとりでに動き出す
+        autoHoldAt = window.scrollY;
+        autoResumeAt = performance.now() / 1000 + AUTO_RESUME_AFTER;
+      };
+      /** 触っているのを終える（「戻す」を押されたときなど） */
+      const endTouch = () => {
+        spinDrag = null;
+        commitBend();
+      };
+
+      const onDown = (e: PointerEvent) => {
+        if (!SPIN && !BEND) return;
+        if (resetLeg || spinDur > 0 || snap) return;
+        if (e.button !== 0) return;
+        const tg = e.target as Element | null;
+        if (tg?.closest("button,a,input,select,textarea,label")) return;
+        const hit = pick(e.clientX, e.clientY);
+        if (!hit) return;
+        e.preventDefault();
+        try {
+          surface.setPointerCapture(e.pointerId);
+        } catch {}
+        const touch = e.pointerType !== "mouse";
+        if (SPIN) {
+          spinDrag = { x: e.clientX, y: e.clientY, t: performance.now(), touch };
+          spinVel = 0;
+        } else {
+          // つかんだ部品を動かす関節＝部品のすぐ親の関節
+          let o: THREE_T.Object3D | null = hit.object;
+          while (o && !/^J\d\d$/.test(o.name)) o = o.parent;
+          const i = o ? joints.indexOf(o) : -1;
+          if (i < 0) return;
+          if (!bend) bend = { v0: motion, from: cur.slice(), log: [] };
+          bendGrab = { i, local: o!.worldToLocal(hit.point.clone()), x: e.clientX, y: e.clientY };
+        }
+        surface.style.cursor = "grabbing";
+      };
+      let hoverQueued = false;
+      const onMove = (e: PointerEvent) => {
+        if (spinDrag) {
+          const now = performance.now();
+          const dx = e.clientX - spinDrag.x;
+          const dy = spinDrag.touch ? 0 : e.clientY - spinDrag.y;
+          const k = spinPerPx();
+          spinAngle += dx * k;
+          tilt = Math.min(0.8, Math.max(-0.8, tilt + dy * k));
+          const dts = Math.max(1, now - spinDrag.t) / 1000;
+          spinVel = spinVel * 0.5 + ((dx * k) / dts) * 0.5;
+          spinDrag.x = e.clientX;
+          spinDrag.y = e.clientY;
+          spinDrag.t = now;
+          return;
+        }
+        if (bendGrab && bend) {
+          const g = bendGrab;
+          const j = joints[g.i];
+          pivot.updateMatrixWorld(true);
+          j.getWorldPosition(jointW);
+          axisW.setFromMatrixColumn(j.matrixWorld, 2).normalize();
+          grabW.copy(g.local);
+          j.localToWorld(grabW);
+          // つかんだ点が、関節を 1 ラジアン回すと画面でどちらへ何px動くか
+          const tan = axisW.clone().cross(grabW.clone().sub(jointW));
+          toScreen(grabW, sa);
+          toScreen(grabW.clone().addScaledVector(tan, 0.01), sb);
+          const tx = (sb.x - sa.x) / 0.01;
+          const ty = (sb.y - sa.y) / 0.01;
+          const len2 = tx * tx + ty * ty;
+          const dx = e.clientX - g.x;
+          const dy = e.clientY - g.y;
+          g.x = e.clientX;
+          g.y = e.clientY;
+          if (len2 < 16) return; // 軸を真上から見ている所。どちらへ回すか決まらない
+          const rad = (dx * tx + dy * ty) / len2;
+          const deg = Math.max(-30, Math.min(30, (rad * 180) / Math.PI));
+          const done = turnJoint(g.i, deg);
+          if (done) bend.log.push({ i: g.i, delta: done });
+          return;
+        }
+        // 立体の上では、つかめる手の形に
+        // （当たりを調べるのは重いので、1フレームに1回まで）
+        if (e.pointerType === "mouse" && (SPIN || BEND) && !snap && !hoverQueued) {
+          hoverQueued = true;
+          const x = e.clientX;
+          const y = e.clientY;
+          requestAnimationFrame(() => {
+            hoverQueued = false;
+            if (spinDrag || bendGrab) return;
+            surface.style.cursor = pick(x, y) ? "grab" : "";
+          });
+        }
+      };
+      const onUp = () => {
+        if (spinDrag) {
+          // 止めてから離したときは、惰性をつけない
+          if (performance.now() - spinDrag.t > 80) spinVel = 0;
+          spinDrag = null;
+        }
+        if (bendGrab && bend) {
+          const i = bendGrab.i;
+          bendGrab = null;
+          // 45度の刻みへ収める（決まったポーズはどれもこの刻み）。近い側がぶつかるなら反対側
+          const a = cur[i];
+          const near = Math.round(a / 45) * 45;
+          const far = near + (a > near ? 45 : -45);
+          const keep = cur.slice();
+          let to: number | null = null;
+          for (const c of [near, far]) {
+            const d = turnJoint(i, c - a);
+            const reached = Math.abs(d - (c - a)) < 1e-6;
+            applyState(keep);
+            if (reached) {
+              to = c;
+              break;
+            }
+          }
+          if (to !== null && Math.abs(to - a) > 0.01)
+            snap = { i, from: a, to, t0: performance.now() / 1000 };
+          else commitBend();
+        }
+        surface.style.cursor = "";
+      };
+      if (SPIN || BEND) {
+        // 縦の指の動きはスクロールに残す
+        surface.style.touchAction = "pan-y pinch-zoom";
+        surface.addEventListener("pointerdown", onDown);
+        surface.addEventListener("pointermove", onMove);
+        surface.addEventListener("pointerup", onUp);
+        surface.addEventListener("pointercancel", onUp);
+      }
+      const removeTouch = () => {
+        surface.removeEventListener("pointerdown", onDown);
+        surface.removeEventListener("pointermove", onMove);
+        surface.removeEventListener("pointerup", onUp);
+        surface.removeEventListener("pointercancel", onUp);
+        surface.style.touchAction = "";
+        surface.style.cursor = "";
+      };
+
       renderer.setAnimationLoop(() => {
         const nowSec = performance.now() / 1000;
         const dt = Math.min(0.05, nowSec - lastT);
@@ -796,9 +1059,11 @@ export function HeroObject({
           autoHoldAt = null;
           autoResumeAt = null;
         }
-        if (heroMotion.settled && !resetLeg && autoHoldAt === null)
+        // 手で曲げているあいだは、帯の上で止めておく
+        const bending = bend !== null;
+        if (heroMotion.settled && !resetLeg && autoHoldAt === null && !bending)
           autoScreens += dt * heroMotion.autoSpeed;
-        motion += (motionTarget() - motion) * k;
+        if (!bending) motion += (motionTarget() - motion) * k;
         scrollAngle += (scrollTarget() - scrollAngle) * k;
 
         if (resetLeg) {
@@ -815,7 +1080,16 @@ export function HeroObject({
             anchor(motion);
             if (autoHoldAt !== null) autoResumeAt = nowSec + AUTO_RESUME_AFTER;
           }
-        } else {
+        } else if (snap) {
+          const u = Math.min(1, (nowSec - snap.t0) / SNAP_DUR);
+          cur[snap.i] = snap.from + (snap.to - snap.from) * settle(u, 0);
+          setPose();
+          if (u >= 1) {
+            cur[snap.i] = snap.to;
+            setPose();
+            commitBend();
+          }
+        } else if (!bending) {
           poseAt(motion);
         }
 
@@ -835,6 +1109,15 @@ export function HeroObject({
           } else {
             spinAngle = spinFrom + (spinTo - spinFrom) * settle(s, 0);
           }
+        } else if (!spinDrag && spinVel !== 0) {
+          // 離したあとの惰性。だんだん弱まって止まる
+          spinAngle += spinVel * dt;
+          spinVel *= Math.exp(-dt * 2.5);
+          if (Math.abs(spinVel) < 0.01) spinVel = 0;
+        }
+        if (!spinDrag && tilt !== 0) {
+          tilt *= Math.exp(-dt * 2);
+          if (Math.abs(tilt) < 0.0005) tilt = 0;
         }
         pivot.rotation.y = spinAngle + scrollAngle;
         frameView();
@@ -850,7 +1133,7 @@ export function HeroObject({
             setSilver(silver, silverTarget, zoom, cam);
           }
         }
-        pivot.rotation.x = 0;
+        pivot.rotation.x = tilt;
         renderer.render(scene, camera);
       });
 
@@ -877,6 +1160,7 @@ export function HeroObject({
           .__resetHeroForm__;
         delete (window as unknown as { __heroSilver__?: unknown }).__heroSilver__;
         renderer.setAnimationLoop(null);
+        removeTouch();
         ro.disconnect();
         pm.dispose();
         tex.dispose();
