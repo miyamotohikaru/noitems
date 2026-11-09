@@ -737,7 +737,7 @@ export function HeroObject({
           settledIn = total;
         }
         autoHoldAt = window.scrollY;
-        autoResumeAt = null; // 3秒待ちの途中でもう一度押されたら、数え直す
+        autoResumeAt = null; // 2秒待ちの途中でもう一度押されたら、数え直す
         // いちばん近い正面へ。行きすぎず戻りすぎず、最短で合わせる。
         // 見えている向きは「戻しの角度＋スクロールぶん」なので、その合計が正面に来るようにする
         spinFrom = spinAngle;
@@ -771,10 +771,10 @@ export function HeroObject({
       const scrollTarget = () =>
         (window.scrollY / Math.max(1, window.innerHeight) + autoScreens) *
         SCROLL_TURN;
-      // 「はじめのかたちに戻す」を押したら、戻り終わってから3秒は、ひとりでには動かさない
+      // 「はじめのかたちに戻す」を押したら、戻り終わってから2秒は、ひとりでには動かさない
       // （押した直後にまたほどけ出すと、戻した意味がなくなる）。
-      // 3秒たつか、その前にスクロールしたら、また動き出す（2026-11-08 ユーザー指定）
-      const AUTO_RESUME_AFTER = 3;
+      // 2秒たつか、その前にスクロールしたら、また動き出す（2026-11-09 ユーザー指定。最初は3秒）
+      const AUTO_RESUME_AFTER = 2;
       let autoHoldAt: number | null = null;
       let autoResumeAt: number | null = null;
       let scrollAngle = scrollTarget();
