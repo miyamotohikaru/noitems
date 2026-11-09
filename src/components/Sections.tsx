@@ -48,7 +48,7 @@ export function LotPlate() {
         <figure className="plate mx-auto aspect-[4/3] max-w-[54rem]">
           <img
             src="/img/lot-plinth-1600.webp"
-            alt="台座の上に置かれた、つや消し銀のかたち"
+            alt="畳まれた、つや消し銀のかたち"
             loading="lazy"
             decoding="async"
             className="h-full w-full object-cover [object-position:50%_46%]"

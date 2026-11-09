@@ -1176,6 +1176,87 @@ export function HeroObject({
           resize();
           return url;
         };
+        /**
+         * ページの写真（形の5連・近くで見る・台座の一枚）を、いまの立体と同じ見た目で撮る口。
+         * 2026-11-09「立体の色味が正解なので、写真をそれに合わせて」。
+         *   pose … 30個の関節角度（度）
+         *   dir  … カメラを置く向き（立体の中心から見て）
+         *   fill … 形の外接球の半径に対する近さ（1 で収まる、大きいほど寄る）
+         *   dist … カメラの距離をじかに決める（形ごとに大きさを変えず、同じ縮尺で並べたいとき）
+         *   look … 画面の中心にする点を、外接球の半径の何倍ずらすか [x, y, z]
+         *   zoom … 質感の粗さ（setSilver の画面で見た大きさ。1 で寄り、小さいほど引きの質感）
+         *   bg   … 地の色。省くと透過
+         */
+        /** 撮る形を探す口。その姿でめり込むか・両端の離れ具合（外接球の半径に対して）・大きさを返す */
+        (window as unknown as { __heroProbe__?: unknown }).__heroProbe__ = (pose: number[]) => {
+          const keep = cur.slice();
+          for (let i = 0; i < cur.length; i++) cur[i] = pose[i] ?? 0;
+          setPose();
+          const hit = hits();
+          pivot.updateMatrixWorld(true);
+          box.setFromObject(model);
+          box.getSize(size);
+          const a = joints[0].getWorldPosition(new THREE.Vector3());
+          const b = meshes[meshes.length - 1].getWorldPosition(new THREE.Vector3());
+          const r = size.length() / 2;
+          for (let i = 0; i < cur.length; i++) cur[i] = keep[i];
+          setPose();
+          return { hit, r, gap: a.distanceTo(b) / r, size: [size.x / r, size.y / r, size.z / r] };
+        };
+        (window as unknown as { __heroShot__?: unknown }).__heroShot__ = (o: {
+          pose: number[];
+          dir: number[];
+          w: number;
+          h: number;
+          fill?: number;
+          dist?: number;
+          fov?: number;
+          look?: number[];
+          zoom?: number;
+          bg?: string;
+        }) => {
+          const keepCur = cur.slice();
+          const keepPos = model.position.clone();
+          const keepRot = pivot.rotation.clone();
+          const keepCam = camera.position.clone();
+          const keepFov = camera.fov;
+          for (let i = 0; i < cur.length; i++) cur[i] = o.pose[i] ?? 0;
+          setPose();
+          pivot.rotation.set(0, 0, 0);
+          model.position.set(0, 0, 0);
+          pivot.updateMatrixWorld(true);
+          box.setFromObject(model);
+          box.getCenter(center);
+          box.getSize(size);
+          model.position.set(-center.x, -center.y, -center.z);
+          const r = size.length() / 2;
+          camera.fov = o.fov ?? keepFov;
+          const d = o.dist ?? r / Math.sin((camera.fov * Math.PI) / 360) / (o.fill ?? 1);
+          const v = new THREE.Vector3(o.dir[0], o.dir[1], o.dir[2]).normalize();
+          const at = new THREE.Vector3(...(o.look ?? [0, 0, 0])).multiplyScalar(r);
+          camera.position.copy(v).multiplyScalar(d).add(at);
+          camera.lookAt(at);
+          setSilver(silver, silverTarget, o.zoom ?? 1, 1);
+          renderer.setPixelRatio(1);
+          renderer.setSize(o.w, o.h, false);
+          camera.aspect = o.w / o.h;
+          camera.clearViewOffset();
+          camera.updateProjectionMatrix();
+          if (o.bg) renderer.setClearColor(o.bg, 1);
+          renderer.render(scene, camera);
+          const url = renderer.domElement.toDataURL("image/png");
+          // 元に戻す
+          renderer.setClearColor(0x000000, 0);
+          camera.fov = keepFov;
+          camera.position.copy(keepCam);
+          model.position.copy(keepPos);
+          pivot.rotation.copy(keepRot);
+          for (let i = 0; i < cur.length; i++) cur[i] = keepCur[i];
+          setPose();
+          zoom = -1; // 次のコマで質感を当て直させる
+          resize();
+          return url;
+        };
       }
 
       setReady(true);
