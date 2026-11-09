@@ -50,15 +50,21 @@ export function Hero() {
   const isMobile = useIsMobile();
   const sectionRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  // 立体の canvas を舞台いっぱいに敷くため、舞台の要素を HeroObject に渡す
-  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
+  /**
+   * 立体の層。画面に貼り付けて、ページのいちばん後ろに敷く。
+   * 本文はこの上を流れ、立体は最後まで背景としてついてくる（2026-11-09 ユーザー指定）。
+   * 色の付いた帯や白い枠の後ろでは隠れ、地の色のところで透けて見える。
+   * canvas もこの層いっぱいに敷くので、要素を HeroObject に渡す
+   */
+  const backRef = useRef<HTMLDivElement>(null);
+  const [backEl, setBackEl] = useState<HTMLDivElement | null>(null);
   const objRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const tagRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
     const sec = sectionRef.current;
-    const stage = stageRef.current;
+    const stage = backRef.current;
     const obj = objRef.current;
     if (!sec || !stage || !obj) return;
 
@@ -126,28 +132,33 @@ export function Hero() {
 
   return (
     <>
+      {/* 立体の層。z-index を負にして、本文や色の付いた帯より後ろ、紙のきめより前に置く */}
+      <div
+        ref={(n) => {
+          backRef.current = n;
+          setBackEl(n);
+        }}
+        className="pointer-events-none fixed inset-x-0 top-0 z-[-1] h-[100svh] overflow-hidden"
+      >
+        {/* はじめは画面の真ん中に、はみ出すほど大きく置く。
+            縮める・寄せるは上の update() が transform で行う */}
+        <div
+          ref={objRef}
+          className="pointer-events-none absolute left-1/2 top-1/2 z-0
+                     -ml-[85vmin] -mt-[85vmin] w-[170vmin] origin-center
+                     will-change-transform"
+        >
+          <HeroObject showReset={false} stage={backEl} />
+        </div>
+      </div>
+
       <section
         id="top"
         ref={sectionRef}
         className="relative h-[340svh] md:h-[440svh]"
       >
-        <div
-          ref={(n) => {
-            stageRef.current = n;
-            setStageEl(n);
-          }}
-          className="sticky top-0 h-[100svh] overflow-hidden"
-        >
-          {/* 立体。はじめは画面の真ん中に、はみ出すほど大きく置く。
-              縮める・寄せるは上の update() が transform で行う */}
-          <div
-            ref={objRef}
-            className="pointer-events-none absolute left-1/2 top-1/2 z-0
-                       -ml-[85vmin] -mt-[85vmin] w-[170vmin] origin-center
-                       will-change-transform"
-          >
-            <HeroObject showReset={false} stage={stageEl} />
-          </div>
+        <div ref={stageRef} className="sticky top-0 h-[100svh] overflow-hidden">
+          {/* 立体は上の、画面に貼り付けた層にいる（ここに置くと、この場面を抜けたところで一緒に流れ去る） */}
 
           {/* キービジュアルの署名。明朝の縦組みでここだけ書体を変える */}
           <p

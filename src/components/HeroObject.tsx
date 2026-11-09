@@ -798,7 +798,29 @@ export function HeroObject({
       const touchMode = new URLSearchParams(location.search).get("touch");
       const SPIN = touchMode === "1";
       const BEND = touchMode !== "1" && touchMode !== "0";
-      const surface: HTMLElement = stage ?? el;
+      // 立体はページ全体の後ろに敷いた層にいて、指やマウスはその上の本文に当たる。
+      // そのため窓全体で受け、立体が見えている所で押されたときだけ掴む
+      const root = document.documentElement;
+      /**
+       * そこで押しても立体を掴まない所。
+       *   ・ボタン、リンク、入力欄（そちらの操作を優先する）
+       *   ・文字の上（文字を選べるように残す）
+       *   ・色の付いた面や写真の上（その後ろの立体は隠れていて見えない）
+       */
+      const blocked = (tg: Element | null) => {
+        if (!tg) return true;
+        if (tg.closest("button,a,input,select,textarea,label,summary,dialog,img,video,svg"))
+          return true;
+        for (const n of tg.childNodes)
+          if (n.nodeType === 3 && n.textContent?.trim()) return true;
+        for (let x: Element | null = tg; x && x !== document.body && x !== root; x = x.parentElement) {
+          const cs = getComputedStyle(x);
+          const bg = cs.backgroundColor;
+          if (bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") return true;
+          if (cs.backgroundImage !== "none") return true;
+        }
+        return false;
+      };
       const ray = new THREE.Raycaster();
       const ndc = new THREE.Vector2();
       const pick = (cx: number, cy: number) => {
@@ -822,7 +844,7 @@ export function HeroObject({
       let spinVel = 0; // 離したあとの惰性（ラジアン/秒）
       let tilt = 0; // 上下の傾き。離すとゆっくり水平へ戻る
       let spinDrag: { x: number; y: number; t: number; touch: boolean } | null = null;
-      const spinPerPx = () => (Math.PI * 2) / Math.max(600, surface.clientWidth);
+      const spinPerPx = () => (Math.PI * 2) / Math.max(600, el.clientWidth);
 
       // ── 曲げる
       type BendMove = { i: number; delta: number };
@@ -921,12 +943,12 @@ export function HeroObject({
         if (resetLeg || spinDur > 0 || snap) return;
         if (e.button !== 0) return;
         const tg = e.target as Element | null;
-        if (tg?.closest("button,a,input,select,textarea,label")) return;
+        if (blocked(tg)) return;
         const hit = pick(e.clientX, e.clientY);
         if (!hit) return;
         e.preventDefault();
         try {
-          surface.setPointerCapture(e.pointerId);
+          tg?.setPointerCapture(e.pointerId);
         } catch {}
         const touch = e.pointerType !== "mouse";
         if (SPIN) {
@@ -941,7 +963,7 @@ export function HeroObject({
           if (!bend) bend = { v0: motion, from: cur.slice(), log: [] };
           bendGrab = { i, local: o!.worldToLocal(hit.point.clone()), x: e.clientX, y: e.clientY };
         }
-        surface.style.cursor = "grabbing";
+        root.style.cursor = "grabbing";
       };
       let hoverQueued = false;
       const onMove = (e: PointerEvent) => {
@@ -994,7 +1016,8 @@ export function HeroObject({
           requestAnimationFrame(() => {
             hoverQueued = false;
             if (spinDrag || bendGrab) return;
-            surface.style.cursor = pick(x, y) ? "grab" : "";
+            const over = document.elementFromPoint(x, y);
+            root.style.cursor = !blocked(over) && pick(x, y) ? "grab" : "";
           });
         }
       };
@@ -1026,23 +1049,23 @@ export function HeroObject({
             snap = { i, from: a, to, t0: performance.now() / 1000 };
           else commitBend();
         }
-        surface.style.cursor = "";
+        root.style.cursor = "";
       };
       if (SPIN || BEND) {
         // 縦の指の動きはスクロールに残す
-        surface.style.touchAction = "pan-y pinch-zoom";
-        surface.addEventListener("pointerdown", onDown);
-        surface.addEventListener("pointermove", onMove);
-        surface.addEventListener("pointerup", onUp);
-        surface.addEventListener("pointercancel", onUp);
+        root.style.touchAction = "pan-y pinch-zoom";
+        window.addEventListener("pointerdown", onDown);
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onUp);
       }
       const removeTouch = () => {
-        surface.removeEventListener("pointerdown", onDown);
-        surface.removeEventListener("pointermove", onMove);
-        surface.removeEventListener("pointerup", onUp);
-        surface.removeEventListener("pointercancel", onUp);
-        surface.style.touchAction = "";
-        surface.style.cursor = "";
+        window.removeEventListener("pointerdown", onDown);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        root.style.touchAction = "";
+        root.style.cursor = "";
       };
 
       renderer.setAnimationLoop(() => {
