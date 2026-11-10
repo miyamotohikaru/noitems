@@ -4,14 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 /**
- * 文字の手直しパネル（2026-11-10 ユーザー指定「文字の字間調整や、改行などの手直ししたい。あと配置も」）。
- * URL に ?tune を付けたときだけ、左下に「文字」のボタンが出る。
+ * 配置と文字の手直しパネル（2026-11-10 ユーザー指定）。
+ *   「文字の字間調整や、改行などの手直ししたい。あと配置も」
+ *   「もっと動かしやすくしてほしい。形を変えるのところ構成とか写真の配置変えたい」
+ * URL に ?tune を付けたときだけ、左下に「配置と文字を直す」のボタンが出る。
  *
  * 使い方:
- *   1.「文字」→「文字を選ぶ」を押してから、直したい文字を押す
- *   2. 大きさ・字間・行間・横と縦の位置をつまみで動かす。
- *      「改行・文字を直す」を押すと、その文字の中で直接改行を足したり消したりできる
- *   3.「値をコピー」→ その文字をそのまま Claude に送る（こちらでページに書き写して確定する）
+ *   1.「選ぶ」を押してから、直したい文字や写真を押す（「ひとつ外側」でまとまりごと選べる）
+ *   2. 選んだものは、ページの上でそのままつかんで動かせる。右下の四角をつかむと大きさが変わる。
+ *      PC は矢印キーで 1px（Shift で 10px）ずつ動く
+ *   3. 並びの中では「前へ」「後ろへ」で順番を、「隠す」で消したときの見え方を試せる
+ *   4. 文字は字間・行間・大きさをつまみで、「改行・文字を直す」でその場で改行を打てる
+ *   5.「値をコピー」→ その文字をそのまま Claude に送る（こちらでページに書き写して確定する）
  *
  * 値は PC（768px 以上）とスマホ（767px 以下）で別々に覚える。いま開いている幅のほうが変わる。
  * このブラウザに覚えておくので、再読み込みしても消えない。
@@ -21,13 +25,16 @@ const STORE = "noitems-text-tune";
 const PHONE = "(max-width: 767px)";
 
 type Fix = {
-  /** どの文字か（書き写すときの目印。元の文字の頭） */
+  /** どれか（書き写すときの目印。元の文字の頭か、写真の説明） */
   label: string;
   size?: number;
   ls?: number;
   lh?: number;
   x?: number;
   y?: number;
+  scale?: number;
+  order?: number;
+  hide?: boolean;
   text?: string;
 };
 type Store = { pc: Record<string, Fix>; sp: Record<string, Fix> };
@@ -35,7 +42,7 @@ const EMPTY: Store = { pc: {}, sp: {} };
 
 const bp = () => (matchMedia(PHONE).matches ? "sp" : "pc") as "pc" | "sp";
 
-/** body から順にたどった道筋。再読み込みしても同じ文字を指せる */
+/** body から順にたどった道筋。再読み込みしても同じものを指せる */
 function pathOf(el: Element) {
   const seg: string[] = [];
   let n: Element | null = el;
@@ -50,39 +57,51 @@ function pathOf(el: Element) {
   return "body > " + seg.join(" > ");
 }
 
-/** 押した所から、文字をじかに持っている要素を探す */
-function textBlock(t: Element | null): HTMLElement | null {
-  for (let n = t; n && n !== document.body; n = n.parentElement) {
-    if (!(n instanceof HTMLElement)) continue;
-    if (n.closest("[data-text-tuner]")) return null;
-    for (const c of n.childNodes)
-      if (c.nodeType === 3 && c.textContent!.trim()) return n;
-  }
+const ownText = (n: Element) =>
+  [...n.childNodes].some((c) => c.nodeType === 3 && c.textContent!.trim());
+
+/** 押した所から、選ぶものを決める（文字ならそれを持つ要素、写真なら写真） */
+function pickable(t: Element | null): HTMLElement | null {
+  if (!t || t.closest("[data-text-tuner]")) return null;
+  const img = t.closest("img,picture,video,svg");
+  if (img instanceof HTMLElement) return img;
+  for (let n: Element | null = t; n && n !== document.body; n = n.parentElement)
+    if (n instanceof HTMLElement && ownText(n)) return n;
   return null;
 }
 
+const labelOf = (el: HTMLElement) =>
+  (el.getAttribute("alt") || el.querySelector("img")?.getAttribute("alt") || el.innerText || el.tagName)
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 24);
+
+/** 改行・文字を直したものだけ、元の中身を控えておく（戻すときに使う） */
 const orig = new WeakMap<HTMLElement, string>();
 const touched = new Set<HTMLElement>();
 
+function clearOne(el: HTMLElement) {
+  for (const k of ["fontSize", "letterSpacing", "lineHeight", "translate", "scale", "order", "display"] as const)
+    el.style[k] = "";
+  const html = orig.get(el);
+  if (html !== undefined && el.innerHTML !== html) el.innerHTML = html;
+  orig.delete(el);
+}
 function clearAll() {
-  for (const el of touched) {
-    el.style.fontSize = "";
-    el.style.letterSpacing = "";
-    el.style.lineHeight = "";
-    el.style.translate = "";
-    const html = orig.get(el);
-    if (html !== undefined && el.innerHTML !== html) el.innerHTML = html;
-  }
+  for (const el of touched) clearOne(el);
   touched.clear();
 }
 
 function applyOne(el: HTMLElement, f: Fix) {
   touched.add(el);
-  if (!orig.has(el)) orig.set(el, el.innerHTML);
+  if (f.text !== undefined && !orig.has(el)) orig.set(el, el.innerHTML);
   el.style.fontSize = f.size !== undefined ? `${f.size}px` : "";
   el.style.letterSpacing = f.ls !== undefined ? `${f.ls}em` : "";
   el.style.lineHeight = f.lh !== undefined ? String(f.lh) : "";
   el.style.translate = f.x || f.y ? `${f.x ?? 0}px ${f.y ?? 0}px` : "";
+  el.style.scale = f.scale !== undefined && f.scale !== 1 ? String(f.scale) : "";
+  el.style.order = f.order !== undefined ? String(f.order) : "";
+  el.style.display = f.hide ? "none" : "";
   if (f.text !== undefined && el.innerText !== f.text) el.innerText = f.text;
 }
 
@@ -94,7 +113,7 @@ function applyAll(s: Store) {
   }
 }
 
-/** いまの見た目の値（つまみの初期位置） */
+/** いまの文字の値（つまみの初期位置） */
 function measure(el: HTMLElement) {
   const cs = getComputedStyle(el);
   const fs = parseFloat(cs.fontSize) || 16;
@@ -103,14 +122,35 @@ function measure(el: HTMLElement) {
   return { size: +fs.toFixed(2), ls: +ls.toFixed(3), lh: +lh.toFixed(2) };
 }
 
-type Knob = { key: "size" | "ls" | "lh" | "x" | "y"; label: string; hint: string; min: number; max: number; step: number };
-const KNOBS: Knob[] = [
-  { key: "size", label: "大きさ", hint: "px", min: 8, max: 120, step: 0.5 },
+/** 並びの中での順番（兄弟の中で何番目に見えているか） */
+function siblingsOf(el: HTMLElement) {
+  const p = el.parentElement;
+  if (!p) return [];
+  return [...p.children].filter((c): c is HTMLElement => c instanceof HTMLElement);
+}
+/**
+ * 並べ替える単位。選んだもの自身か、その外側で「同じ種類が並んでいる」所まで上がる
+ * （写真を選んで「前へ」を押したら、写真と番号のひと組＝li ごと入れ替える）
+ */
+function rowItem(el: HTMLElement): HTMLElement | null {
+  for (let n: HTMLElement | null = el; n && n.parentElement && n !== document.body; n = n.parentElement) {
+    const same = siblingsOf(n).filter((c) => c.tagName === n!.tagName);
+    if (same.length > 1) return n;
+  }
+  return null;
+}
+const orderOf = (el: HTMLElement, i: number) => {
+  const o = parseInt(el.style.order || getComputedStyle(el).order, 10);
+  return Number.isFinite(o) && o !== 0 ? o : i;
+};
+
+type Knob = { key: "size" | "ls" | "lh" | "scale"; label: string; hint: string; min: number; max: number; step: number };
+const TEXT_KNOBS: Knob[] = [
+  { key: "size", label: "文字の大きさ", hint: "px", min: 8, max: 120, step: 0.5 },
   { key: "ls", label: "字間", hint: "文字の大きさに対する割合", min: -0.1, max: 0.6, step: 0.005 },
   { key: "lh", label: "行間", hint: "文字の大きさに対する倍率", min: 0.8, max: 3, step: 0.01 },
-  { key: "x", label: "横の位置", hint: "px。右が＋", min: -400, max: 400, step: 1 },
-  { key: "y", label: "縦の位置", hint: "px。下が＋", min: -400, max: 400, step: 1 },
 ];
+const SCALE: Knob = { key: "scale", label: "拡大・縮小", hint: "1で元のまま。右下の四角をつかんでも変わる", min: 0.2, max: 3, step: 0.01 };
 
 export function TextTuner() {
   const [on, setOn] = useState(false);
@@ -121,16 +161,37 @@ export function TextTuner() {
   const [sel, setSel] = useState<HTMLElement | null>(null);
   const [base, setBase] = useState({ size: 16, ls: 0, lh: 1.5 });
   const [copied, setCopied] = useState(false);
-  const [, setTick] = useState(0);
+  const [box, setBox] = useState<DOMRect | null>(null);
+  // 選んだものが画面の下半分にあるときは、パネルを上に寄せて隠さないようにする
+  const [dockTop, setDockTop] = useState(false);
   const storeRef = useRef(store);
   storeRef.current = store;
+  const selRef = useRef(sel);
+  selRef.current = sel;
 
   const save = useCallback((s: Store) => {
     setStore(s);
+    storeRef.current = s;
     try {
       localStorage.setItem(STORE, JSON.stringify(s));
     } catch {}
   }, []);
+
+  /** 選んでいるものの値を書き換えて、すぐ当てる */
+  const change = useCallback(
+    (patch: Partial<Fix>) => {
+      const el = selRef.current;
+      if (!el) return;
+      const b = bp();
+      const s = storeRef.current;
+      const path = pathOf(el);
+      const cur = s[b][path];
+      const next: Fix = { ...cur, label: cur?.label ?? labelOf(el), ...patch };
+      applyOne(el, next);
+      save({ ...s, [b]: { ...s[b], [path]: next } });
+    },
+    [save],
+  );
 
   // 起動。覚えている値を当て、幅が PC/スマホをまたいだら当て直す
   useEffect(() => {
@@ -141,6 +202,7 @@ export function TextTuner() {
       if (raw) s = { ...EMPTY, ...JSON.parse(raw) };
     } catch {}
     setStore(s);
+    storeRef.current = s;
     setOn(true);
     // 本文の一部は読み込みのあとで組まれるので、少し遅れても当てる
     const run = () => applyAll(storeRef.current);
@@ -157,32 +219,40 @@ export function TextTuner() {
     };
   }, []);
 
-  // スマホは画面が狭いので、文字のパネルを開いている間は「見た目の調整」パネルを引っ込める（GrainTuner が聞く）
+  // スマホは画面が狭いので、このパネルを開いている間は「見た目の調整」パネルを引っ込める（GrainTuner が聞く）
   useEffect(() => {
     if (!on) return;
     window.dispatchEvent(new CustomEvent("text-tuner", { detail: { open } }));
   }, [on, open]);
 
-  // 選ぶとき: ページの文字を押すとそれを選ぶ（リンクやボタンは働かせない）
+  const choose = useCallback((el: HTMLElement) => {
+    setEditing(false);
+    // 覚えている文字の値を一度外して、元の見た目を測る
+    const keep = [el.style.fontSize, el.style.letterSpacing, el.style.lineHeight];
+    el.style.fontSize = el.style.letterSpacing = el.style.lineHeight = "";
+    setBase(measure(el));
+    [el.style.fontSize, el.style.letterSpacing, el.style.lineHeight] = keep;
+    const r = el.getBoundingClientRect();
+    setDockTop(r.top + r.height / 2 > window.innerHeight / 2);
+    setSel(el);
+    setOpen(true);
+  }, []);
+
+  // 選ぶとき: ページを押すとそれを選ぶ（リンクやボタンは働かせない）
   useEffect(() => {
     if (!picking) return;
+    let hover: HTMLElement | null = null;
     const over = (e: PointerEvent) => {
-      const el = textBlock(e.target as Element);
-      document.querySelectorAll("[data-text-hover]").forEach((n) => {
-        (n as HTMLElement).style.outline = "";
-        n.removeAttribute("data-text-hover");
-      });
-      if (el) {
-        el.style.outline = "1px dashed rgba(0,0,0,.5)";
-        el.setAttribute("data-text-hover", "");
-      }
+      if (hover) hover.style.outline = "";
+      hover = pickable(e.target as Element);
+      if (hover) hover.style.outline = "1px dashed rgba(200,40,40,.8)";
     };
     const click = (e: MouseEvent) => {
       const t = e.target as Element;
       if (t.closest("[data-text-tuner]")) return;
       e.preventDefault();
       e.stopPropagation();
-      const el = textBlock(t);
+      const el = pickable(t);
       if (!el) return;
       choose(el);
       setPicking(false);
@@ -190,30 +260,31 @@ export function TextTuner() {
     document.addEventListener("pointerover", over, true);
     document.addEventListener("click", click, true);
     return () => {
+      if (hover) hover.style.outline = "";
       document.removeEventListener("pointerover", over, true);
       document.removeEventListener("click", click, true);
-      document.querySelectorAll("[data-text-hover]").forEach((n) => {
-        (n as HTMLElement).style.outline = "";
-        n.removeAttribute("data-text-hover");
-      });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [picking]);
+  }, [picking, choose]);
 
-  // 選んでいる文字に印をつける
+  // 選んでいるものの枠（ページの上に、動かすための枠と大きさの四角を重ねる）
   useEffect(() => {
-    if (!sel) return;
-    sel.style.outline = "1px solid rgba(200,40,40,.7)";
-    sel.style.outlineOffset = "2px";
-    return () => {
-      sel.style.outline = "";
-      sel.style.outlineOffset = "";
+    if (!sel) {
+      setBox(null);
+      return;
+    }
+    let raf = 0;
+    const loop = () => {
+      setBox(sel.isConnected && sel.style.display !== "none" ? sel.getBoundingClientRect() : null);
+      raf = requestAnimationFrame(loop);
     };
+    loop();
+    return () => cancelAnimationFrame(raf);
   }, [sel]);
 
   // 改行・文字を直す: その文字の中で、じかに打てるようにする
   useEffect(() => {
     if (!sel || !editing) return;
+    if (!orig.has(sel)) orig.set(sel, sel.innerHTML);
     sel.setAttribute("contenteditable", "true");
     sel.focus();
     // Enter は段落を作らず、改行だけを入れる
@@ -229,42 +300,99 @@ export function TextTuner() {
     };
   }, [sel, editing]);
 
-  const path = sel ? pathOf(sel) : "";
-  const fix: Fix | undefined = sel ? store[bp()][path] : undefined;
+  // 矢印キーで少しずつ動かす（PC）
+  useEffect(() => {
+    if (!sel || editing) return;
+    const key = (e: KeyboardEvent) => {
+      const d = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, number[]>)[e.key];
+      if (!d) return;
+      const t = e.target as Element;
+      if (t.closest?.("input,textarea,[contenteditable]")) return;
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 1;
+      const f = storeRef.current[bp()][pathOf(sel)];
+      change({ x: (f?.x ?? 0) + d[0] * step, y: (f?.y ?? 0) + d[1] * step });
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [sel, editing, change]);
 
-  const choose = (el: HTMLElement) => {
-    setEditing(false);
-    // 覚えている値を一度外して、元の見た目を測る
-    const p = pathOf(el);
-    const had = storeRef.current[bp()][p];
-    if (had) {
-      el.style.fontSize = el.style.letterSpacing = el.style.lineHeight = "";
-    }
-    setBase(measure(el));
-    if (had) applyOne(el, had);
-    setSel(el);
-    setOpen(true);
+  /** 枠をつかんで動かす・四角をつかんで大きさを変える */
+  const grab = (mode: "move" | "size") => (e: React.PointerEvent) => {
+    const el = selRef.current;
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const f = storeRef.current[bp()][pathOf(el)];
+    const x0 = f?.x ?? 0;
+    const y0 = f?.y ?? 0;
+    const s0 = f?.scale ?? 1;
+    const w0 = el.getBoundingClientRect().width || 1;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      if (mode === "move") change({ x: Math.round(x0 + dx), y: Math.round(y0 + dy) });
+      else change({ scale: +Math.max(0.1, s0 * (1 + dx / w0)).toFixed(3) });
+    };
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+      target.removeEventListener("pointercancel", up);
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+    target.addEventListener("pointercancel", up);
   };
 
-  const change = (patch: Partial<Fix>) => {
-    if (!sel) return;
+  /** 並びの中で前へ・後ろへ（flex の order を振り直す） */
+  const shift = (dir: -1 | 1) => {
+    const el = selRef.current && rowItem(selRef.current);
+    if (!el) return;
+    const sibs = siblingsOf(el)
+      .map((n, i) => ({ n, o: orderOf(n, i) }))
+      .sort((a, b) => a.o - b.o)
+      .map((a) => a.n);
+    const i = sibs.indexOf(el);
+    const j = i + dir;
+    if (j < 0 || j >= sibs.length) return;
+    [sibs[i], sibs[j]] = [sibs[j], sibs[i]];
+    // 兄弟みんなに 1, 2, 3… を振り直して覚える
     const b = bp();
-    const label = fix?.label ?? sel.innerText.trim().slice(0, 24);
-    const next: Fix = { ...fix, label, ...patch };
-    applyOne(sel, next);
-    save({ ...store, [b]: { ...store[b], [path]: next } });
+    const s = storeRef.current;
+    const map = { ...s[b] };
+    sibs.forEach((n, k) => {
+      const p = pathOf(n);
+      const next: Fix = { ...map[p], label: map[p]?.label ?? labelOf(n), order: k + 1 };
+      map[p] = next;
+      applyOne(n, next);
+    });
+    save({ ...s, [b]: map });
   };
 
   const resetSel = () => {
-    if (!sel) return;
+    const el = selRef.current;
+    if (!el) return;
     const b = bp();
-    const rest = { ...store[b] };
-    delete rest[path];
-    const next = { ...store, [b]: rest };
+    const rest = { ...storeRef.current[b] };
+    delete rest[pathOf(el)];
+    const next = { ...storeRef.current, [b]: rest };
     save(next);
     setEditing(false);
     applyAll(next);
-    setTick((t) => t + 1);
+  };
+
+  /** 隠したものを戻す（隠すと押せなくなるので、一覧から戻す） */
+  const unhide = (path: string) => {
+    const b = bp();
+    const s = storeRef.current;
+    const f = { ...s[b][path], hide: false };
+    const el = document.querySelector(path);
+    if (el instanceof HTMLElement) applyOne(el, f);
+    save({ ...s, [b]: { ...s[b], [path]: f } });
   };
 
   if (!on) return null;
@@ -272,6 +400,30 @@ export function TextTuner() {
   const out = JSON.stringify(store);
   const count = Object.keys(store.pc).length + Object.keys(store.sp).length;
   const where = bp() === "sp" ? "スマホ" : "PC";
+  const fix: Fix | undefined = sel ? store[bp()][pathOf(sel)] : undefined;
+  const isText = !!sel && ownText(sel);
+  const inRow = !!sel && !!rowItem(sel);
+  const hidden = Object.entries(store[bp()]).filter(([, f]) => f.hide);
+
+  const overlay =
+    sel && box && !picking && !editing ? (
+      <>
+        {/* 選んでいるものの上に重ねる枠。つかんで動かす */}
+        <div
+          data-text-tuner
+          onPointerDown={grab("move")}
+          className="fixed z-[100] cursor-move border border-[#c82828] bg-[#c82828]/5"
+          style={{ left: box.left, top: box.top, width: box.width, height: box.height, touchAction: "none" }}
+        />
+        {/* 右下の四角。つかんで横に引くと大きさが変わる */}
+        <div
+          data-text-tuner
+          onPointerDown={grab("size")}
+          className="fixed z-[100] h-6 w-6 cursor-nwse-resize rounded-sm border-2 border-white bg-[#c82828] shadow"
+          style={{ left: box.right - 12, top: box.bottom - 12, touchAction: "none" }}
+        />
+      </>
+    ) : null;
 
   // 閉じているとき（スマホは画面の上、PC は左下に小さく）
   if (!open)
@@ -284,7 +436,7 @@ export function TextTuner() {
                    text-[12px] text-black shadow-[0_2px_16px_rgba(0,0,0,0.15)] backdrop-blur md:top-auto md:bottom-3"
         style={{ letterSpacing: 0 }}
       >
-        文字を直す{count > 0 && <span className="ml-1 text-black/50">（{count}か所）</span>}
+        配置と文字を直す{count > 0 && <span className="ml-1 text-black/50">（{count}か所）</span>}
       </button>,
       document.body,
     );
@@ -298,7 +450,7 @@ export function TextTuner() {
                    text-[12px] text-white shadow-[0_2px_16px_rgba(0,0,0,0.15)] md:right-auto md:w-[20rem]"
         style={{ letterSpacing: 0 }}
       >
-        <span className="flex-1">直したい文字を押してください</span>
+        <span className="flex-1">直したい文字か写真を押してください</span>
         <button type="button" className="rounded border border-white/60 px-2 py-1" onClick={() => setPicking(false)}>
           やめる
         </button>
@@ -306,47 +458,87 @@ export function TextTuner() {
       document.body,
     );
 
+  const btn = "rounded border border-black/20 px-2 py-2 disabled:opacity-30";
+
   return createPortal(
-    <div
-      data-text-tuner
-      className="fixed bottom-3 left-3 z-[101] w-[min(20rem,calc(100vw-1.5rem))]
-                 rounded-lg bg-white/90 text-[12px] leading-[1.4] text-black
-                 shadow-[0_2px_16px_rgba(0,0,0,0.15)] backdrop-blur"
-      style={{ letterSpacing: 0 }}
-    >
-      <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <span className="font-medium">
-          文字<span className="ml-1 font-normal text-black/50">（{where}の値を直しています）</span>
-        </span>
-        <button type="button" onClick={() => setOpen(!open)} className="px-2 py-1">
-          とじる
-        </button>
-      </div>
-      {open && (
+    <>
+      {overlay}
+      <div
+        data-text-tuner
+        className={`fixed left-3 z-[101] w-[min(20rem,calc(100vw-1.5rem))]
+                    rounded-lg bg-white/90 text-[12px] leading-[1.4] text-black
+                    shadow-[0_2px_16px_rgba(0,0,0,0.15)] backdrop-blur ${
+                      dockTop ? "top-[calc(var(--nav-h,4rem)+0.5rem)]" : "bottom-3"
+                    }`}
+        style={{ letterSpacing: 0 }}
+      >
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <span className="font-medium">
+            配置と文字<span className="ml-1 font-normal text-black/50">（{where}の値）</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              setSel(null);
+              setEditing(false);
+            }}
+            className="px-2 py-1"
+          >
+            とじる
+          </button>
+        </div>
         <div className="max-h-[30svh] overflow-y-auto px-3 pb-2 md:max-h-[60svh]">
           <div className="mb-2 flex gap-2">
             <button
               type="button"
-              className={`flex-1 rounded px-2 py-2 ${picking ? "bg-[#c82828] text-white" : "border border-black/20"}`}
-              onClick={() => setPicking(!picking)}
+              className="flex-1 rounded bg-[#c82828] px-2 py-2 text-white"
+              onClick={() => {
+                setEditing(false);
+                setPicking(true);
+              }}
             >
-              {sel ? "別の文字を選ぶ" : "文字を選ぶ"}
+              {sel ? "別のものを選ぶ" : "選ぶ"}
             </button>
             {sel?.parentElement && sel.parentElement !== document.body && (
-              <button
-                type="button"
-                className="rounded border border-black/20 px-2 py-2"
-                onClick={() => choose(sel.parentElement!)}
-              >
+              <button type="button" className={btn} onClick={() => choose(sel.parentElement!)}>
                 ひとつ外側
               </button>
             )}
           </div>
+          {!sel && (
+            <p className="mb-2 text-black/50">
+              選んだものは、ページの上でそのままつかんで動かせます。
+              右下の赤い四角をつかんで横に引くと、大きさが変わります。
+            </p>
+          )}
           {sel && (
             <>
-              <p className="mb-2 line-clamp-2 text-black/60">「{(fix?.label ?? sel.innerText).trim().slice(0, 40)}」</p>
-              {KNOBS.map((k) => {
-                const v = fix?.[k.key] ?? (k.key === "x" || k.key === "y" ? 0 : base[k.key]);
+              <p className="mb-2 line-clamp-2 text-black/60">「{fix?.label ?? labelOf(sel)}」</p>
+              <div className="mb-2 grid grid-cols-3 gap-2">
+                <button type="button" className={btn} disabled={!inRow} onClick={() => shift(-1)}>
+                  ← 前へ
+                </button>
+                <button type="button" className={btn} disabled={!inRow} onClick={() => shift(1)}>
+                  後ろへ →
+                </button>
+                <button
+                  type="button"
+                  className={btn}
+                  onClick={() => {
+                    change({ hide: true });
+                    setSel(null);
+                  }}
+                >
+                  隠す
+                </button>
+              </div>
+              <p className="mb-2 text-black/50">
+                位置 {fix?.x ?? 0}, {fix?.y ?? 0} px
+                <span className="hidden md:inline">（矢印キーで1px、Shiftで10px）</span>
+              </p>
+              {[SCALE, ...(isText ? TEXT_KNOBS : [])].map((k) => {
+                const v = fix?.[k.key] ?? (k.key === "scale" ? 1 : base[k.key]);
                 return (
                   <label key={k.key} className="mb-1.5 block">
                     <span className="flex justify-between">
@@ -369,18 +561,20 @@ export function TextTuner() {
                 );
               })}
               <div className="mb-1 flex gap-2">
-                <button
-                  type="button"
-                  className={`flex-1 rounded px-2 py-2 ${editing ? "bg-black text-white" : "border border-black/20"}`}
-                  onClick={() => {
-                    if (editing) change({ text: sel.innerText.replace(/\n+$/, "") });
-                    setEditing(!editing);
-                  }}
-                >
-                  {editing ? "直し終わった" : "改行・文字を直す"}
-                </button>
-                <button type="button" className="rounded border border-black/20 px-2 py-2" onClick={resetSel}>
-                  この文字を戻す
+                {isText && (
+                  <button
+                    type="button"
+                    className={`flex-1 rounded px-2 py-2 ${editing ? "bg-black text-white" : "border border-black/20"}`}
+                    onClick={() => {
+                      if (editing) change({ text: sel.innerText.replace(/\n+$/, "") });
+                      setEditing(!editing);
+                    }}
+                  >
+                    {editing ? "直し終わった" : "改行・文字を直す"}
+                  </button>
+                )}
+                <button type="button" className={`${btn} ${isText ? "" : "flex-1"}`} onClick={resetSel}>
+                  これを元に戻す
                 </button>
               </div>
               {editing && (
@@ -391,41 +585,52 @@ export function TextTuner() {
               )}
             </>
           )}
+          {hidden.length > 0 && (
+            <div className="mt-2 border-t border-black/10 pt-2">
+              <p className="mb-1 text-black/50">隠しているもの</p>
+              {hidden.map(([p, f]) => (
+                <div key={p} className="mb-1 flex items-center gap-2">
+                  <span className="flex-1 truncate">{f.label}</span>
+                  <button type="button" className="rounded border border-black/20 px-2 py-1" onClick={() => unhide(p)}>
+                    戻す
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-      <div className="flex gap-2 border-t border-black/10 px-3 py-2">
-        <button
-          type="button"
-          className="flex-1 rounded bg-black px-2 py-2 text-white"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(out);
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1500);
-            } catch {}
-          }}
-        >
-          {copied ? "コピーしました" : `値をコピー（${count}か所）`}
-        </button>
-        <button
-          type="button"
-          className="rounded border border-black/20 px-2 py-2"
-          onClick={() => {
-            save(EMPTY);
-            setSel(null);
-            setEditing(false);
-            applyAll(EMPTY);
-          }}
-        >
-          全部戻す
-        </button>
-      </div>
-      {open && (
+        <div className="flex gap-2 border-t border-black/10 px-3 py-2">
+          <button
+            type="button"
+            className="flex-1 rounded bg-black px-2 py-2 text-white"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(out);
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1500);
+              } catch {}
+            }}
+          >
+            {copied ? "コピーしました" : `値をコピー（${count}か所）`}
+          </button>
+          <button
+            type="button"
+            className={btn}
+            onClick={() => {
+              save(EMPTY);
+              setSel(null);
+              setEditing(false);
+              applyAll(EMPTY);
+            }}
+          >
+            全部戻す
+          </button>
+        </div>
         <p className="hidden max-h-20 overflow-y-auto break-all px-3 pb-2 font-mono text-[10px] text-black/50 select-all md:block">
           {count === 0 ? "（まだ何も変えていません）" : out}
         </p>
-      )}
-    </div>,
+      </div>
+    </>,
     document.body,
   );
 }
