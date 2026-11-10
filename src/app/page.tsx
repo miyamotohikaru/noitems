@@ -6,7 +6,6 @@ import { PaymentDrawer } from "@/components/PaymentDrawer";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
   Concept,
-  Details,
   Faq,
   Forms,
   SiteFooter,
@@ -55,10 +54,8 @@ export default async function Page() {
         <Card no="03" label="かたち">
           <Forms />
         </Card>
-        <Card no="04" label="近くで見る">
-          <Details />
-        </Card>
-        <Card no="05" label="問い">
+        {/* 近くで見る（Details）は 2026-11-10 にユーザーの指示で外した */}
+        <Card no="04" label="問い">
           <Faq />
         </Card>
       </main>

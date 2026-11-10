@@ -1,4 +1,4 @@
-import { concept, details, faq, forms, legal, site } from "@/lib/lot";
+import { concept, faq, forms, legal, site } from "@/lib/lot";
 import { Reveal } from "./Reveal";
 
 /* 作品名は途中で折らせない。全角空白5個の真ん中で折れると「」だけが行頭に残る */
@@ -102,64 +102,6 @@ export function Forms() {
       </Reveal>
 
       <p className="label-jp mt-8">{forms.note}</p>
-    </section>
-  );
-}
-
-export function Details() {
-  const [first, second] = details.plates;
-  return (
-    <section className="shade-lift">
-      <div className="page py-[var(--gap-major)]">
-        <SectionHead>{details.heading}</SectionHead>
-
-        {/* 同寸で並べると互いを殺す。大小と縦位置をずらして主従をつける */}
-        <div className="mt-12 md:mt-[4.5rem]">
-          <Reveal>
-            <figure className="w-full md:w-[72%]">
-              <div className="plate aspect-[14/9]">
-                <img
-                  src={`${first.src}-1400.webp`}
-                  alt={first.alt}
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full object-cover"
-                />
-              </div>
-              <figcaption className="mt-4 flex items-baseline gap-3">
-                <span className="num label">{first.no}</span>
-                <span className="text-[0.8125rem] font-light tracking-[0.1em] text-ink/82">
-                  {first.title}
-                  <span className="mx-2 text-[var(--sep)]">／</span>
-                  {first.sub}
-                </span>
-              </figcaption>
-            </figure>
-          </Reveal>
-
-          <Reveal delay={140}>
-            <figure className="mt-12 ml-auto w-full md:-mt-16 md:w-[44%]">
-              <div className="plate aspect-[4/5]">
-                <img
-                  src={`${second.src}-1400.webp`}
-                  alt={second.alt}
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full object-cover"
-                />
-              </div>
-              <figcaption className="mt-4 flex items-baseline gap-3">
-                <span className="num label">{second.no}</span>
-                <span className="text-[0.8125rem] font-light tracking-[0.1em] text-ink/82">
-                  {second.title}
-                  <span className="mx-2 text-[var(--sep)]">／</span>
-                  {second.sub}
-                </span>
-              </figcaption>
-            </figure>
-          </Reveal>
-        </div>
-      </div>
     </section>
   );
 }
