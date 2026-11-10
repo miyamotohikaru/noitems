@@ -40,25 +40,6 @@ function SectionHead({
   );
 }
 
-/** 参考デザインどおり、入札のすぐ後に一枚。数字のあとに目を休ませる */
-export function LotPlate() {
-  return (
-    <section className="page pb-[var(--gap-major)]">
-      <Reveal>
-        <figure className="plate mx-auto aspect-[4/3] max-w-[54rem]">
-          <img
-            src="/img/lot-plinth-1600.webp"
-            alt="畳まれた、つや消し銀のかたち"
-            loading="lazy"
-            decoding="async"
-            className="h-full w-full object-cover [object-position:50%_46%]"
-          />
-        </figure>
-      </Reveal>
-    </section>
-  );
-}
-
 export function Concept() {
   return (
     <section id="concept" className="md:bg-sheet">

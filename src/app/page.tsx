@@ -9,7 +9,6 @@ import {
   Details,
   Faq,
   Forms,
-  LotPlate,
   SiteFooter,
 } from "@/components/Sections";
 
@@ -49,19 +48,17 @@ export default async function Page() {
           </Card>
         )}
         {/* スマホでは、項目ごとに下から重なってくるカードにする（components/Card.tsx） */}
-        <Card no="02" label="作品">
-          <LotPlate />
-        </Card>
-        <Card no="03" label="コンセプト">
+        {/* 入札のあとの一枚（LotPlate）は 2026-11-10 にユーザーの指示で外した */}
+        <Card no="02" label="コンセプト">
           <Concept />
         </Card>
-        <Card no="04" label="かたち">
+        <Card no="03" label="かたち">
           <Forms />
         </Card>
-        <Card no="05" label="近くで見る">
+        <Card no="04" label="近くで見る">
           <Details />
         </Card>
-        <Card no="06" label="問い">
+        <Card no="05" label="問い">
           <Faq />
         </Card>
       </main>
