@@ -63,38 +63,12 @@ export const forms = {
   ],
 };
 
-export const details = {
-  heading: "近くで、見る",
-  plates: [
-    {
-      no: "01",
-      title: "曲面",
-      sub: "光の粒",
-      src: "/img/detail-01",
-      alt: "つや消し銀の曲面に散る、細かな光の粒",
-      tone: "light" as const,
-    },
-    {
-      no: "02",
-      title: "稜線",
-      sub: "連なりの輪郭",
-      src: "/img/detail-02",
-      alt: "暗がりに浮かぶ、連なった管の稜線",
-      tone: "dark" as const,
-    },
-  ],
-};
-
 export const faq = {
   heading: "問いに、いくつか。",
   items: [
     {
       q: "この作品の正式な名称は？",
       a: "名前はありません。「　　　　　」という空白が、そのままの名です。呼び名は、手にした人が決めてください。",
-    },
-    {
-      q: "表面はどのように仕上げられていますか？",
-      a: "［仕上げ方法を記入］",
     },
     {
       q: "サイズと重さは？",
