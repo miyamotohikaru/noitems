@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { cardLayout } from "@/lib/sykim/motion";
 
 /**
  * スマホで、項目を「下から重なってくるカード」にする（2026-11-09 ユーザー指定）。
  * ユーザーが送ってきた4本の画面録画（COC・TAIYO LINKS・FUNTECH）に共通する見せ方。
  *
- *   ・カードは自分の下端が画面の下端に来たところで止まり、次のカードがその上へ重なってくる
+ *   ・カードは最後の行まで読める所（下端が画面の上から35%の高さ）まで上がってから止まり、
+ *     次のカードがその上へ重なってくる（止まる高さは lib/sykim/motion.ts の CARD.stop）
  *   ・カードの上端に項目名を残す（いまどこを読んでいるかが分かる）
  *   ・地は半透明。後ろの立体（ページのいちばん後ろの層）がうっすら透ける
  *
@@ -28,23 +30,26 @@ export function Card({
     const el = ref.current;
     if (!el) return;
     const phone = matchMedia("(max-width: 767px)");
-    // 止まる位置。カードが画面より短ければ上の帯の下で、長ければ下端が画面の下端に来たところで止める
+    // 止まる位置。カードが短ければ上の帯の下で、長ければ下端が画面の stop 割の高さまで
+    // 上がったところで止める（最後の行まで読めてから、次のカードが下から来る）
     const place = () => {
       if (!phone.matches) {
         el.style.top = "";
         return;
       }
       const nav = document.querySelector("header")?.getBoundingClientRect().height ?? 0;
-      el.style.top = `${Math.min(nav, window.innerHeight - el.offsetHeight)}px`;
+      el.style.top = `${Math.min(nav, window.innerHeight * cardLayout.stop - el.offsetHeight)}px`;
     };
     place();
     const ro = new ResizeObserver(place);
     ro.observe(el);
     window.addEventListener("resize", place);
+    window.addEventListener("card-layout", place);
     phone.addEventListener("change", place);
     return () => {
       ro.disconnect();
       window.removeEventListener("resize", place);
+      window.removeEventListener("card-layout", place);
       phone.removeEventListener("change", place);
     };
   }, []);

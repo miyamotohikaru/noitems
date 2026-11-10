@@ -51,6 +51,7 @@ type Tune = Silver & {
   cardBlur: number;
   cardRadius: number;
   cardShadow: number;
+  cardStop: number;
 };
 const DEFAULT: Tune = {
   ...SILVER,
@@ -69,6 +70,7 @@ const DEFAULT: Tune = {
   cardBlur: CARD.blur,
   cardRadius: CARD.radius,
   cardShadow: CARD.shadow,
+  cardStop: CARD.stop,
 };
 
 /** 動きと大きさを当てる（質感以外） */
@@ -85,7 +87,13 @@ function applyMotion(g: Tune) {
     endY: g.mY,
     turn: g.mTurn,
   });
-  applyCard({ alpha: g.cardAlpha, blur: g.cardBlur, radius: g.cardRadius, shadow: g.cardShadow });
+  applyCard({
+    alpha: g.cardAlpha,
+    blur: g.cardBlur,
+    radius: g.cardRadius,
+    shadow: g.cardShadow,
+    stop: g.cardStop,
+  });
   // Hero に置き直させる（大きさ・位置・最初の場面の長さ）
   window.dispatchEvent(new Event("hero-layout"));
 }
@@ -194,6 +202,8 @@ const GROUPS: { title: string; knobs: Knob[] }[] = [
   {
     title: "カード（スマホ）",
     knobs: [
+      { label: "止まる高さ", hint: "下端がここまで上がってから次が来る。1で画面の下端", min: 0.3, max: 1, step: 0.01,
+        get: (g) => g.cardStop, set: (g, v) => ({ ...g, cardStop: v }) },
       { label: "地の濃さ", hint: "1で透けない。下げると後ろの立体が透ける", min: 0.3, max: 1, step: 0.01,
         get: (g) => g.cardAlpha, set: (g, v) => ({ ...g, cardAlpha: v }) },
       { label: "後ろのぼかし", hint: "px", min: 0, max: 40, step: 1,

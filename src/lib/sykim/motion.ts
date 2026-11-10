@@ -69,8 +69,21 @@ export const CARD = {
   radius: 0,
   /** 上の縁の影の濃さ */
   shadow: 0.3,
+  /**
+   * カードが止まる高さ（カードの下端が、画面の上から何割の所に来たら止まるか）。
+   * 1 だと下端が画面の下端に来た瞬間に次のカードが重なり始め、最後の行を読む前に隠れる
+   * （2026-11-10「下まで読まないから、全部スクロール終わってから次の項目に行ってほしい」）。
+   * 0.35 なら最後の行が画面の上の方まで上がり、読み終えてから次のカードが下から来る
+   * （0.6 だと、最後の行が画面の真ん中あたりで次のカードに隠れた）。
+   */
+  stop: 0.35,
 };
+export const cardLayout = { stop: CARD.stop };
 export function applyCard(c: typeof CARD) {
+  if (cardLayout.stop !== c.stop) {
+    cardLayout.stop = c.stop;
+    window.dispatchEvent(new Event("card-layout"));
+  }
   const s = document.documentElement.style;
   s.setProperty("--card-alpha", String(c.alpha));
   s.setProperty("--card-blur", `${c.blur}px`);
