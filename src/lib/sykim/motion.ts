@@ -79,6 +79,22 @@ export const CARD = {
   stop: 0.35,
 };
 export const cardLayout = { stop: CARD.stop };
+
+/**
+ * 地のある所（入札の白い枠・PC の白い帯と明るい帯）で、後ろの立体を影として透かす（2026-11-10）。
+ * 見た目は globals.css の .sheet / .shade-sheet / .shade-lift。
+ */
+export const SHADE = {
+  /** 地の濃さ（1 で透けない＝影も見えない） */
+  alpha: 0.84,
+  /** 影のぼかし（px） */
+  blur: 12,
+};
+export function applyShade(c: typeof SHADE) {
+  const s = document.documentElement.style;
+  s.setProperty("--shade-alpha", String(c.alpha));
+  s.setProperty("--shade-blur", `${c.blur}px`);
+}
 export function applyCard(c: typeof CARD) {
   if (cardLayout.stop !== c.stop) {
     cardLayout.stop = c.stop;

@@ -7,10 +7,12 @@ import {
   AUTO_SPEED,
   CARD,
   END_SCALE,
+  SHADE,
   MOBILE,
   START_SCALE,
   TURN,
   applyCard,
+  applyShade,
   heroLayout,
   heroMotion,
   heroTurn,
@@ -52,6 +54,8 @@ type Tune = Silver & {
   cardRadius: number;
   cardShadow: number;
   cardStop: number;
+  shadeAlpha: number;
+  shadeBlur: number;
 };
 const DEFAULT: Tune = {
   ...SILVER,
@@ -71,6 +75,8 @@ const DEFAULT: Tune = {
   cardRadius: CARD.radius,
   cardShadow: CARD.shadow,
   cardStop: CARD.stop,
+  shadeAlpha: SHADE.alpha,
+  shadeBlur: SHADE.blur,
 };
 
 /** 動きと大きさを当てる（質感以外） */
@@ -94,6 +100,7 @@ function applyMotion(g: Tune) {
     shadow: g.cardShadow,
     stop: g.cardStop,
   });
+  applyShade({ alpha: g.shadeAlpha, blur: g.shadeBlur });
   // Hero に置き直させる（大きさ・位置・最初の場面の長さ）
   window.dispatchEvent(new Event("hero-layout"));
 }
@@ -197,6 +204,15 @@ const GROUPS: { title: string; knobs: Knob[] }[] = [
         get: (g) => g.mY, set: (g, v) => ({ ...g, mY: v }) },
       { label: "回る速さ", hint: "画面1つぶんのスクロールで何周", min: 0, max: 1.5, step: 0.01,
         get: (g) => g.mTurn, set: (g, v) => ({ ...g, mTurn: v }) },
+    ],
+  },
+  {
+    title: "地のある所（影）",
+    knobs: [
+      { label: "地の濃さ", hint: "下げると後ろの立体の影が濃く出る。1で影なし", min: 0.4, max: 1, step: 0.01,
+        get: (g) => g.shadeAlpha, set: (g, v) => ({ ...g, shadeAlpha: v }) },
+      { label: "影のぼかし", hint: "px", min: 0, max: 40, step: 1,
+        get: (g) => g.shadeBlur, set: (g, v) => ({ ...g, shadeBlur: v }) },
     ],
   },
   {

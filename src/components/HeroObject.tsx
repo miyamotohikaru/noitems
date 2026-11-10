@@ -818,6 +818,9 @@ export function HeroObject({
         // スマホの重なってくるカード（地は疑似要素なので、下の色の判定では拾えない）
         const card = tg.closest(".card-m");
         if (card && getComputedStyle(card).position === "sticky") return true;
+        // 地のある所（立体は影としてしか見えていない）
+        const shade = tg.closest(".sheet,.shade-sheet,.shade-lift");
+        if (shade && getComputedStyle(shade, "::before").content !== "none") return true;
         for (let x: Element | null = tg; x && x !== document.body && x !== root; x = x.parentElement) {
           const cs = getComputedStyle(x);
           const bg = cs.backgroundColor;

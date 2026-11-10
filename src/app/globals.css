@@ -168,8 +168,51 @@
 
   /* 入札の札。影で浮かせない。紙の上に刷られた一枚として、罫だけで囲む */
   .sheet {
-    background: var(--color-sheet);
     border: 1px solid var(--rule-firm);
+  }
+
+  /*
+   * 地のある所（入札の白い枠・PC の白い帯と明るい帯）。
+   * 後ろの立体を隠しきらず、ぼかして色を抜いた「影」として透かす（2026-11-10 ユーザー指定）。
+   * 地とぼかしは疑似要素に載せる。要素そのものに backdrop-filter を掛けると、
+   * 中にある position: fixed の要素がその中に閉じ込められる。
+   * 濃さとぼかしは調整パネルの「地のある所（影）」から動かす（lib/sykim/motion.ts の SHADE）。
+   */
+  .sheet,
+  .shade-sheet,
+  .shade-lift {
+    position: relative;
+    isolation: isolate;
+  }
+  .sheet::before,
+  .shade-sheet::before,
+  .shade-lift::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: color-mix(
+      in srgb,
+      var(--color-sheet) calc(var(--shade-alpha, 0.84) * 100%),
+      transparent
+    );
+    -webkit-backdrop-filter: blur(var(--shade-blur, 12px)) grayscale(1);
+    backdrop-filter: blur(var(--shade-blur, 12px)) grayscale(1);
+  }
+  .shade-lift::before {
+    background: color-mix(
+      in srgb,
+      var(--color-ground-lift) calc(var(--shade-alpha, 0.84) * 100%),
+      transparent
+    );
+  }
+  /* スマホではこの帯は地を持たない（カードの地がその役をする） */
+  @media (max-width: 767px) {
+    .shade-sheet::before,
+    .shade-lift::before {
+      content: none;
+    }
   }
 
   /* ボタンはすべて直角。キービジュアルに角丸は一つも無い */
