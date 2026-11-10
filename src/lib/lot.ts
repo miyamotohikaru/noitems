@@ -53,7 +53,6 @@ export const concept = {
 export const forms = {
   heading: "ひとつの線が、かたちを変える",
   lead: "密に畳まれた塊から、ほどけた輪まで。どれも同じ一本です。",
-  note: "同じ縮尺で並べています。",
   items: [
     { no: "01", src: "/img/form-001.webp", w: 2524, alt: "密に畳まれたかたち" },
     { no: "02", src: "/img/form-004.webp", w: 3059, alt: "ゆるみはじめたかたち" },

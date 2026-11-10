@@ -165,10 +165,11 @@ export function Hero() {
         <div ref={stageRef} className="sticky top-0 h-[100svh] overflow-hidden">
           {/* 立体は上の、画面に貼り付けた層にいる（ここに置くと、この場面を抜けたところで一緒に流れ去る） */}
 
-          {/* キービジュアルの署名。明朝の縦組みでここだけ書体を変える */}
+          {/* キービジュアルの署名。明朝の縦組みでここだけ書体を変える。
+              スマホでも出す（2026-11-10「スクロールしたらこれが見えるようになって欲しい」） */}
           <p
             ref={tagRef}
-            className="vertical font-mincho pointer-events-none absolute hidden opacity-0 lg:block
+            className="vertical font-mincho pointer-events-none absolute block opacity-0
                        right-[var(--spacing-gutter)] top-[calc(var(--nav-h)+4rem)]
                        text-[0.9375rem] font-light tracking-[0.12em] text-ink/72"
           >

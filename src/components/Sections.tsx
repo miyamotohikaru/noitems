@@ -1,4 +1,5 @@
 import { concept, faq, forms, legal, site } from "@/lib/lot";
+import { FormsSlide } from "./FormsSlide";
 import { Reveal } from "./Reveal";
 
 /* 作品名は途中で折らせない。全角空白5個の真ん中で折れると「」だけが行頭に残る */
@@ -75,7 +76,7 @@ export function Forms() {
       <SectionHead lead={forms.lead}>{forms.heading}</SectionHead>
 
       <Reveal delay={120}>
-        <ol className="mt-14 flex items-stretch gap-4 overflow-x-auto pb-2 md:mt-20 md:gap-7 md:overflow-visible">
+        <FormsSlide>
           {forms.items.map((item) => (
             <li
               key={item.no}
@@ -98,10 +99,8 @@ export function Forms() {
               </span>
             </li>
           ))}
-        </ol>
+        </FormsSlide>
       </Reveal>
-
-      <p className="label-jp mt-8">{forms.note}</p>
     </section>
   );
 }

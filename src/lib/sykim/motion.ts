@@ -77,16 +77,21 @@ export const CARD = {
    * （0.6 だと、最後の行が画面の真ん中あたりで次のカードに隠れた）。
    */
   stop: 0.35,
+  /**
+   * かたちの5つの並び（スマホでは画面に収まらない）を、縦のスクロールで右まで送る長さ（画面いくつぶん）。
+   * かたちのカードはこの間止まったままで、並びだけが左へ流れる（2026-11-10）
+   */
+  slide: 1,
 };
-export const cardLayout = { stop: CARD.stop };
+export const cardLayout = { stop: CARD.stop, slide: CARD.slide };
 
 /**
  * 地のある所（入札の白い枠・PC の白い帯と明るい帯）で、後ろの立体を影として透かす（2026-11-10）。
  * 見た目は globals.css の .sheet / .shade-sheet / .shade-lift。
  */
 export const SHADE = {
-  /** 地の濃さ（1 で透けない＝影も見えない） */
-  alpha: 0.84,
+  /** 地の濃さ（1 で透けない＝影も見えない）。2026-11-10「もう少し濃く」で 0.84 → 0.72 */
+  alpha: 0.72,
   /** 影のぼかし（px） */
   blur: 12,
 };
@@ -96,8 +101,9 @@ export function applyShade(c: typeof SHADE) {
   s.setProperty("--shade-blur", `${c.blur}px`);
 }
 export function applyCard(c: typeof CARD) {
-  if (cardLayout.stop !== c.stop) {
+  if (cardLayout.stop !== c.stop || cardLayout.slide !== c.slide) {
     cardLayout.stop = c.stop;
+    cardLayout.slide = c.slide;
     window.dispatchEvent(new Event("card-layout"));
   }
   const s = document.documentElement.style;
@@ -105,4 +111,5 @@ export function applyCard(c: typeof CARD) {
   s.setProperty("--card-blur", `${c.blur}px`);
   s.setProperty("--card-radius", `${c.radius}px`);
   s.setProperty("--card-shadow", String(c.shadow));
+  s.setProperty("--forms-slide", String(c.slide));
 }

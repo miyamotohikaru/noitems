@@ -18,10 +18,13 @@ import { cardLayout } from "@/lib/sykim/motion";
 export function Card({
   label,
   no,
+  stop,
   children,
 }: {
   label: string;
   no: string;
+  /** このカードだけ止まる高さを変えるとき（かたちは並びを送る間、全体を見せたいので 1） */
+  stop?: number;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -38,7 +41,7 @@ export function Card({
         return;
       }
       const nav = document.querySelector("header")?.getBoundingClientRect().height ?? 0;
-      el.style.top = `${Math.min(nav, window.innerHeight * cardLayout.stop - el.offsetHeight)}px`;
+      el.style.top = `${Math.min(nav, window.innerHeight * (stop ?? cardLayout.stop) - el.offsetHeight)}px`;
     };
     place();
     const ro = new ResizeObserver(place);
@@ -52,7 +55,7 @@ export function Card({
       window.removeEventListener("card-layout", place);
       phone.removeEventListener("change", place);
     };
-  }, []);
+  }, [stop]);
 
   return (
     <div ref={ref} className="card-m">

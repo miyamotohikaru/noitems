@@ -51,9 +51,11 @@ export default async function Page() {
         <Card no="02" label="コンセプト">
           <Concept />
         </Card>
-        <Card no="03" label="かたち">
+        <Card no="03" label="かたち" stop={1}>
           <Forms />
         </Card>
+        {/* スマホで、かたちの並びを右まで送るあいだの空き（components/FormsSlide.tsx）。PC では高さ 0 */}
+        <div id="forms-hold" aria-hidden className="forms-hold" />
         {/* 近くで見る（Details）は 2026-11-10 にユーザーの指示で外した */}
         <Card no="04" label="問い">
           <Faq />

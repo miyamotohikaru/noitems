@@ -13,6 +13,7 @@ import {
   type Silver,
 } from "@/lib/sykim/silverGrain";
 import { GrainTuner } from "@/components/GrainTuner";
+import { TextTuner } from "@/components/TextTuner";
 import { heroMotion, heroTurn, mobileLayout } from "@/lib/sykim/motion";
 import { POSES } from "@/lib/sykim/poses";
 import { makeHitTest } from "@/lib/sykim/collide";
@@ -1339,6 +1340,7 @@ export function HeroObject({
             枠の内側、下端に重ねて置く。
             立体は pointer-events-none で敷いてあるので、ここだけ触れるようにする */}
         <GrainTuner />
+        <TextTuner />
 
         {showReset && (
         <div className="pointer-events-auto absolute inset-x-0 bottom-[6%] z-10 flex justify-center">

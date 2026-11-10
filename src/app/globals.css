@@ -194,7 +194,7 @@
     pointer-events: none;
     background: color-mix(
       in srgb,
-      var(--color-sheet) calc(var(--shade-alpha, 0.84) * 100%),
+      var(--color-sheet) calc(var(--shade-alpha, 0.72) * 100%),
       transparent
     );
     -webkit-backdrop-filter: blur(var(--shade-blur, 12px)) grayscale(1);
@@ -203,7 +203,7 @@
   .shade-lift::before {
     background: color-mix(
       in srgb,
-      var(--color-ground-lift) calc(var(--shade-alpha, 0.84) * 100%),
+      var(--color-ground-lift) calc(var(--shade-alpha, 0.72) * 100%),
       transparent
     );
   }
@@ -287,10 +287,18 @@
   }
 
   /* スマホの、下から重なってくるカード（components/Card.tsx）。PC ではただの囲み */
+  .forms-hold {
+    display: none;
+  }
   .card-m-tab {
     display: none;
   }
   @media (max-width: 767px) {
+    /* かたちの並びを右まで送るあいだの空き（components/FormsSlide.tsx） */
+    .forms-hold {
+      display: block;
+      height: calc(var(--forms-slide, 1) * 100svh);
+    }
     .card-m {
       position: sticky;
       /* 後から来たカードが、前のカードの中身より必ず上に重なるように */

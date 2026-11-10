@@ -54,6 +54,7 @@ type Tune = Silver & {
   cardRadius: number;
   cardShadow: number;
   cardStop: number;
+  cardSlide: number;
   shadeAlpha: number;
   shadeBlur: number;
 };
@@ -75,6 +76,7 @@ const DEFAULT: Tune = {
   cardRadius: CARD.radius,
   cardShadow: CARD.shadow,
   cardStop: CARD.stop,
+  cardSlide: CARD.slide,
   shadeAlpha: SHADE.alpha,
   shadeBlur: SHADE.blur,
 };
@@ -99,6 +101,7 @@ function applyMotion(g: Tune) {
     radius: g.cardRadius,
     shadow: g.cardShadow,
     stop: g.cardStop,
+    slide: g.cardSlide,
   });
   applyShade({ alpha: g.shadeAlpha, blur: g.shadeBlur });
   // Hero に置き直させる（大きさ・位置・最初の場面の長さ）
@@ -220,6 +223,8 @@ const GROUPS: { title: string; knobs: Knob[] }[] = [
     knobs: [
       { label: "止まる高さ", hint: "下端がここまで上がってから次が来る。1で画面の下端", min: 0.3, max: 1, step: 0.01,
         get: (g) => g.cardStop, set: (g, v) => ({ ...g, cardStop: v }) },
+      { label: "かたちを送る長さ", hint: "5つの並びを右まで送るのに、画面いくつぶんスクロールするか", min: 0.3, max: 3, step: 0.05,
+        get: (g) => g.cardSlide, set: (g, v) => ({ ...g, cardSlide: v }) },
       { label: "地の濃さ", hint: "1で透けない。下げると後ろの立体が透ける", min: 0.3, max: 1, step: 0.01,
         get: (g) => g.cardAlpha, set: (g, v) => ({ ...g, cardAlpha: v }) },
       { label: "後ろのぼかし", hint: "px", min: 0, max: 40, step: 1,
@@ -323,6 +328,14 @@ export function GrainTuner() {
   const [open, setOpen] = useState(true);
   const [g, setG] = useState<Tune>(DEFAULT);
   const [copied, setCopied] = useState(false);
+  // スマホで文字のパネル（TextTuner）を開いている間は引っ込む
+  const [textOpen, setTextOpen] = useState(false);
+  useEffect(() => {
+    const f = (e: Event) =>
+      setTextOpen(!!(e as CustomEvent).detail?.open && matchMedia("(max-width: 767px)").matches);
+    window.addEventListener("text-tuner", f);
+    return () => window.removeEventListener("text-tuner", f);
+  }, []);
 
   useEffect(() => {
     if (!new URLSearchParams(location.search).has("tune")) return;
@@ -348,7 +361,7 @@ export function GrainTuner() {
     } catch {}
   };
 
-  if (!on) return null;
+  if (!on || textOpen) return null;
 
   const text = JSON.stringify(diff(g));
 
