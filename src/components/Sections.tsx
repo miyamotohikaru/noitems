@@ -32,9 +32,9 @@ function SectionHead({
   children: React.ReactNode;
   lead?: string;
 }) {
+  // 見出しに添えていた短い罫は 2026-11-11 ユーザーの指示で外した
   return (
     <Reveal>
-      <hr className="rule mb-6 w-14 border-t-[var(--rule-firm)]" />
       <h2 className="heading">{children}</h2>
       {lead && <p className="prose-jp mt-6 max-w-[var(--measure)]">{lead}</p>}
     </Reveal>
