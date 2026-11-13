@@ -717,8 +717,48 @@ export function HeroObject({
         | { kind: "plan"; plan: Plan; t0: number; total: number }
         | { kind: "rewind"; from: number; to: number; t0: number; total: number };
       let resetLeg: ResetLeg | null = null;
-      /** 巻き戻しの長さ。帯が長くても、この秒数に収める */
-      const REWIND_MAX = 2.4;
+      /**
+       * 「戻す」で畳み終わるまでの秒数（2026-11-13 ユーザー指示。10月の PR #5 と同じ 0.4 秒）。
+       * めり込むかどうかは通る姿の並びだけで決まり、速さには関係しない。
+       * だから、当たり判定を通した道筋は、時間を縮めても安全なまま。
+       */
+      const RESET_SEC = 0.4;
+      /** 関節が動き終わるまでを RESET_SEC に縮める */
+      const quick = (p: Plan): Plan => {
+        let end = 0;
+        for (const m of p.mv) if (m.delta !== 0) end = Math.max(end, m.at + m.dur);
+        if (end <= 0) return p; // もう畳まれている
+        const k = RESET_SEC / end;
+        const settled = RESET_SEC + 0.05;
+        return {
+          ...p,
+          mv: p.mv.map((m) => ({ ...m, at: m.at * k, dur: m.dur * k })),
+          settled,
+          total: settled,
+        };
+      };
+      /** 全部の関節をいっせいに動かす案。めり込まないときだけ返す */
+      const together = (from: number[], to: number[]): Plan | null => {
+        const keep = cur.slice();
+        checks = 0;
+        try {
+          const p: Plan = {
+            from: from.slice(),
+            to: to.slice(),
+            mv: joints.map((_, i) => ({
+              at: 0,
+              dur: 1,
+              over: 0,
+              delta: shortest(from[i], to[i]),
+            })),
+            settled: 1,
+            total: 1,
+          };
+          return planIsClean(p) ? p : null;
+        } finally {
+          applyState(keep);
+        }
+      };
 
       // ボタンから呼ばれる。いまの姿を起点に、畳まれた塊へ戻す。
       // 戻し終わったら、その位置を新しい起点にして帯を張り直す
@@ -728,17 +768,19 @@ export function HeroObject({
         endTouch();
         const t0 = performance.now() / 1000;
         // 形によっては、ぶつからずに畳む道筋が見つからない（以前はそのとき何も起きなかった）。
-        // 静かな戻し方 → ふつうの戻し方 → 巻き戻し、の順に試す
-        const p =
+        // 全関節いっせい → 静かな戻し方 → ふつうの戻し方 → 巻き戻し、の順に試す。
+        // どれも RESET_SEC で畳み終える
+        const raw =
+          together(cur.slice(), POSES[0]) ??
           planBetween(cur.slice(), POSES[0], true) ??
           planBetween(cur.slice(), POSES[0]);
         let settledIn: number;
-        if (p) {
+        if (raw) {
+          const p = quick(raw);
           resetLeg = { kind: "plan", plan: p, t0, total: p.total };
           settledIn = p.settled;
         } else {
-          const dist = Math.abs(motion - anchorAt);
-          const total = Math.min(REWIND_MAX, Math.max(0.8, dist));
+          const total = RESET_SEC;
           resetLeg = { kind: "rewind", from: motion, to: anchorAt, t0, total };
           settledIn = total;
         }
@@ -1350,7 +1392,7 @@ export function HeroObject({
           onClick={() => {
             resetRef.current?.();
             setResetting(true);
-            window.setTimeout(() => setResetting(false), 1400);
+            window.setTimeout(() => setResetting(false), 500);
           }}
           className="btn-line min-h-10 px-5 text-[0.6875rem] tracking-[0.16em]
                      disabled:pointer-events-none disabled:opacity-0
@@ -1393,7 +1435,7 @@ export function ResetFormButton({ className = "" }: { className?: string }) {
         // 隠れているほうも一緒に戻す。どちらが見えているかはここでは決めない
         resetters.forEach((fn) => fn());
         setResetting(true);
-        window.setTimeout(() => setResetting(false), 1400);
+        window.setTimeout(() => setResetting(false), 500);
       }}
       className={`btn-line min-h-10 px-5 text-[0.6875rem] tracking-[0.16em] ${className}`}
     >
