@@ -400,3 +400,14 @@
     transform: none;
   }
 }
+
+/* ローディング画面（Loader.tsx）。スクリプトが動かなくても閉じ込めないよう、12 秒で必ず消す */
+.loader {
+  animation: loader-giveup 0.8s ease-out 12s forwards;
+}
+@keyframes loader-giveup {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}

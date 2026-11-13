@@ -55,6 +55,12 @@ function addResetter(fn: () => void) {
   };
 }
 
+/** ローディング画面（Loader.tsx）に、立体を出せたと知らせる */
+function heroReady() {
+  window.__heroReady__ = true;
+  window.dispatchEvent(new Event("hero-ready"));
+}
+
 export function HeroObject({
   className = "",
   showReset = true,
@@ -177,7 +183,13 @@ export function HeroObject({
       scene.add(pivot);
 
       const loader = new GLTFLoader();
-      const gltf = await loader.loadAsync("/models/sykim.glb");
+      // 届いた量をローディング画面（Loader.tsx）へ知らせる。
+      // 大きさが返ってこないときは、ファイルの実寸（3.8MB）で割る
+      const gltf = await loader.loadAsync("/models/sykim.glb", (e) => {
+        const p = e.loaded / (e.total || 3825216);
+        window.__heroProgress__ = p;
+        window.dispatchEvent(new CustomEvent("hero-progress", { detail: p }));
+      });
       if (disposed) {
         renderer.dispose();
         return;
@@ -359,6 +371,7 @@ export function HeroObject({
       if (reduced) {
         renderer.render(scene, camera);
         setReady(true);
+        heroReady();
         cleanup = () => {
           ro.disconnect();
           pm.dispose();
@@ -1311,6 +1324,7 @@ export function HeroObject({
       }
 
       setReady(true);
+      heroReady();
       cleanup = () => {
         resetRef.current = null;
         delete (window as unknown as { __resetHeroForm__?: () => void })
@@ -1328,6 +1342,7 @@ export function HeroObject({
     })().catch((error) => {
       // 3Dが出せなくても静止画が残るので、致命的ではない
       console.error("[hero] 3D の読み込みに失敗しました", error);
+      heroReady(); // 静止画で見せられるので、ローディング画面は開ける
     });
 
     return () => {

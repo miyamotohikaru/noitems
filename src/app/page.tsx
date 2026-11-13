@@ -2,6 +2,7 @@ import { auction } from "@/lib/auction";
 import { AuctionRoom } from "@/components/AuctionRoom";
 import { Card } from "@/components/Card";
 import { Hero } from "@/components/Hero";
+import { Loader } from "@/components/Loader";
 import { PaymentDrawer } from "@/components/PaymentDrawer";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
@@ -25,6 +26,7 @@ export default async function Page() {
 
   return (
     <>
+      <Loader />
       <SiteHeader />
       <PaymentDrawer />
       <main>
