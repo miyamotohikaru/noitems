@@ -1,15 +1,15 @@
 import { auction } from "@/lib/auction";
 import { readSession } from "@/lib/session";
 import { AuctionRoom } from "@/components/AuctionRoom";
+import { Card } from "@/components/Card";
 import { Hero } from "@/components/Hero";
+import { Loader } from "@/components/Loader";
 import { PaymentDrawer } from "@/components/PaymentDrawer";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
   Concept,
-  Details,
   Faq,
   Forms,
-  LotPlate,
   SiteFooter,
 } from "@/components/Sections";
 
@@ -30,6 +30,7 @@ export default async function Page() {
 
   return (
     <>
+      <Loader />
       <SiteHeader />
       <PaymentDrawer />
       <main>
@@ -37,6 +38,7 @@ export default async function Page() {
         {initial ? (
           <AuctionRoom initial={initial} />
         ) : (
+          <Card no="01" label="入札">
           <section id="auction" className="page py-[var(--gap-major)]">
             <div className="sheet max-w-[var(--measure)] px-8 py-10">
               <p className="text-[0.9375rem] leading-[1.95]">
@@ -48,12 +50,22 @@ export default async function Page() {
               </p>
             </div>
           </section>
+          </Card>
         )}
-        <LotPlate />
-        <Concept />
-        <Forms />
-        <Details />
-        <Faq />
+        {/* スマホでは、項目ごとに下から重なってくるカードにする（components/Card.tsx） */}
+        {/* 入札のあとの一枚（LotPlate）は 2026-11-10 にユーザーの指示で外した */}
+        <Card no="02" label="コンセプト">
+          <Concept />
+        </Card>
+        <Card no="03" label="かたち" stop={1}>
+          <Forms />
+        </Card>
+        {/* スマホで、かたちの並びを右まで送るあいだの空き（components/FormsSlide.tsx）。PC では高さ 0 */}
+        <div id="forms-hold" aria-hidden className="forms-hold" />
+        {/* 近くで見る（Details）は 2026-11-10 にユーザーの指示で外した */}
+        <Card no="04" label="問い">
+          <Faq />
+        </Card>
       </main>
       <SiteFooter />
     </>

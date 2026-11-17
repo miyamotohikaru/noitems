@@ -1,4 +1,5 @@
-import { concept, details, faq, forms, legal, site } from "@/lib/lot";
+import { concept, faq, forms, legal, site } from "@/lib/lot";
+import { FormsSlide } from "./FormsSlide";
 import { Reveal } from "./Reveal";
 
 /* 作品名は途中で折らせない。全角空白5個の真ん中で折れると「」だけが行頭に残る */
@@ -31,37 +32,18 @@ function SectionHead({
   children: React.ReactNode;
   lead?: string;
 }) {
+  // 見出しに添えていた短い罫は 2026-11-11 ユーザーの指示で外した
   return (
     <Reveal>
-      <hr className="rule mb-6 w-14 border-t-[var(--rule-firm)]" />
       <h2 className="heading">{children}</h2>
       {lead && <p className="prose-jp mt-6 max-w-[var(--measure)]">{lead}</p>}
     </Reveal>
   );
 }
 
-/** 参考デザインどおり、入札のすぐ後に一枚。数字のあとに目を休ませる */
-export function LotPlate() {
-  return (
-    <section className="page pb-[var(--gap-major)]">
-      <Reveal>
-        <figure className="plate mx-auto aspect-[4/3] max-w-[54rem]">
-          <img
-            src="/img/lot-plinth-1600.webp"
-            alt="台座の上に置かれた、つや消し銀のかたち"
-            loading="lazy"
-            decoding="async"
-            className="h-full w-full object-cover [object-position:50%_46%]"
-          />
-        </figure>
-      </Reveal>
-    </section>
-  );
-}
-
 export function Concept() {
   return (
-    <section id="concept" className="bg-sheet">
+    <section id="concept" className="shade-sheet">
       <div className="page py-[var(--gap-major)]">
         <SectionHead>{concept.heading}</SectionHead>
         {/* 2段に割ると1段26字になり、行末に「ん。」だけが落ちる。単段45字で組む */}
@@ -94,7 +76,7 @@ export function Forms() {
       <SectionHead lead={forms.lead}>{forms.heading}</SectionHead>
 
       <Reveal delay={120}>
-        <ol className="mt-14 flex items-stretch gap-4 overflow-x-auto pb-2 md:mt-20 md:gap-7 md:overflow-visible">
+        <FormsSlide>
           {forms.items.map((item) => (
             <li
               key={item.no}
@@ -117,75 +99,15 @@ export function Forms() {
               </span>
             </li>
           ))}
-        </ol>
+        </FormsSlide>
       </Reveal>
-
-      <p className="label-jp mt-8">{forms.note}</p>
-    </section>
-  );
-}
-
-export function Details() {
-  const [first, second] = details.plates;
-  return (
-    <section className="bg-ground-lift">
-      <div className="page py-[var(--gap-major)]">
-        <SectionHead>{details.heading}</SectionHead>
-
-        {/* 同寸で並べると互いを殺す。大小と縦位置をずらして主従をつける */}
-        <div className="mt-12 md:mt-[4.5rem]">
-          <Reveal>
-            <figure className="w-full md:w-[72%]">
-              <div className="plate aspect-[14/9]">
-                <img
-                  src={`${first.src}-1400.webp`}
-                  alt={first.alt}
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full object-cover"
-                />
-              </div>
-              <figcaption className="mt-4 flex items-baseline gap-3">
-                <span className="num label">{first.no}</span>
-                <span className="text-[0.8125rem] font-light tracking-[0.1em] text-ink/82">
-                  {first.title}
-                  <span className="mx-2 text-[var(--sep)]">／</span>
-                  {first.sub}
-                </span>
-              </figcaption>
-            </figure>
-          </Reveal>
-
-          <Reveal delay={140}>
-            <figure className="mt-12 ml-auto w-full md:-mt-16 md:w-[44%]">
-              <div className="plate aspect-[4/5]">
-                <img
-                  src={`${second.src}-1400.webp`}
-                  alt={second.alt}
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full object-cover"
-                />
-              </div>
-              <figcaption className="mt-4 flex items-baseline gap-3">
-                <span className="num label">{second.no}</span>
-                <span className="text-[0.8125rem] font-light tracking-[0.1em] text-ink/82">
-                  {second.title}
-                  <span className="mx-2 text-[var(--sep)]">／</span>
-                  {second.sub}
-                </span>
-              </figcaption>
-            </figure>
-          </Reveal>
-        </div>
-      </div>
     </section>
   );
 }
 
 export function Faq() {
   return (
-    <section id="details" className="bg-sheet">
+    <section id="details" className="shade-sheet">
       <div className="page pt-[var(--gap-minor)] pb-[var(--gap-major)]">
         <SectionHead>{faq.heading}</SectionHead>
         {/* 罫の右端を組みの右端に揃える（20rem + 3.5rem + 36rem） */}

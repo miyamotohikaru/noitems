@@ -3,7 +3,7 @@
 /* ------------------------------------------------------------------
    「　　　　　」— 一点物オークション
 
-   地はキービジュアルの板紙そのもの（#d5d1c9）。
+   地はキービジュアルの板紙そのもの（元は #d5d1c9。2026-11-08 にユーザー指定で #d9d7d3 へ）。
    ポスターも参考デザインも、紙面のどこを測ってもこの色に収まっている。
    ここを明るくすると銀が浮かず、化粧品のLPになる。
    墨は一色。色を足さないことが、この作品の主張そのもの。
@@ -11,9 +11,9 @@
 
 @theme {
   /* 地 ── キービジュアルの板紙 */
-  --color-ground: #d5d1c9;
+  --color-ground: #d9d7d3;
   /* 節の帯。参考デザインと同じ明暗のリズム */
-  --color-ground-lift: #dbd7d0;
+  --color-ground-lift: #dfddda;
   --color-sheet: #fbfaf8;
 
   /* 墨 */
@@ -168,8 +168,51 @@
 
   /* 入札の札。影で浮かせない。紙の上に刷られた一枚として、罫だけで囲む */
   .sheet {
-    background: var(--color-sheet);
     border: 1px solid var(--rule-firm);
+  }
+
+  /*
+   * 地のある所（入札の白い枠・PC の白い帯と明るい帯）。
+   * 後ろの立体を隠しきらず、ぼかして色を抜いた「影」として透かす（2026-11-10 ユーザー指定）。
+   * 地とぼかしは疑似要素に載せる。要素そのものに backdrop-filter を掛けると、
+   * 中にある position: fixed の要素がその中に閉じ込められる。
+   * 濃さとぼかしは調整パネルの「地のある所（影）」から動かす（lib/sykim/motion.ts の SHADE）。
+   */
+  .sheet,
+  .shade-sheet,
+  .shade-lift {
+    position: relative;
+    isolation: isolate;
+  }
+  .sheet::before,
+  .shade-sheet::before,
+  .shade-lift::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: color-mix(
+      in srgb,
+      var(--color-sheet) calc(var(--shade-alpha, 0.72) * 100%),
+      transparent
+    );
+    -webkit-backdrop-filter: blur(var(--shade-blur, 12px)) grayscale(1);
+    backdrop-filter: blur(var(--shade-blur, 12px)) grayscale(1);
+  }
+  .shade-lift::before {
+    background: color-mix(
+      in srgb,
+      var(--color-ground-lift) calc(var(--shade-alpha, 0.72) * 100%),
+      transparent
+    );
+  }
+  /* スマホではこの帯は地を持たない（カードの地がその役をする） */
+  @media (max-width: 767px) {
+    .shade-sheet::before,
+    .shade-lift::before {
+      content: none;
+    }
   }
 
   /* ボタンはすべて直角。キービジュアルに角丸は一つも無い */
@@ -242,6 +285,68 @@
   .link-ul:hover {
     background-size: 100% 1px;
   }
+
+  /* スマホの、下から重なってくるカード（components/Card.tsx）。PC ではただの囲み */
+  .forms-hold {
+    display: none;
+  }
+  .card-m-tab {
+    display: none;
+  }
+  @media (max-width: 767px) {
+    /* かたちの並びを右まで送るあいだの空き（components/FormsSlide.tsx） */
+    .forms-hold {
+      display: block;
+      height: calc(var(--forms-slide, 1) * 100svh);
+    }
+    .card-m {
+      position: sticky;
+      /* 後から来たカードが、前のカードの中身より必ず上に重なるように */
+      isolation: isolate;
+      border-top: 1px solid var(--rule-firm);
+      border-radius: var(--card-radius, 0px) var(--card-radius, 0px) 0 0;
+      box-shadow: 0 -24px 40px -30px rgb(22 19 15 / var(--card-shadow, 0.3));
+    }
+    /* 地とぼかしは疑似要素に載せる。カード自身に backdrop-filter を掛けると、
+       中にある position: fixed の要素がカードの中に閉じ込められる */
+    .card-m::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      border-radius: inherit;
+      background: color-mix(
+        in srgb,
+        var(--color-ground) calc(var(--card-alpha, 0.88) * 100%),
+        transparent
+      );
+      -webkit-backdrop-filter: blur(var(--card-blur, 14px));
+      backdrop-filter: blur(var(--card-blur, 14px));
+    }
+    /* 項目名。カードを読んでいるあいだ、上の帯のすぐ下に残る */
+    .card-m-tab {
+      position: sticky;
+      top: var(--nav-h);
+      z-index: 2;
+      display: flex;
+      align-items: baseline;
+      gap: 0.9rem;
+      padding: 0.95rem var(--spacing-gutter) 0.85rem;
+      border-top-left-radius: inherit;
+      border-top-right-radius: inherit;
+      border-bottom: 1px solid var(--rule);
+      font-size: 0.6875rem;
+      letter-spacing: 0.2em;
+      color: rgb(22 19 15 / 0.72);
+      background: color-mix(
+        in srgb,
+        var(--color-ground) calc(max(var(--card-alpha, 0.88), 0.9) * 100%),
+        transparent
+      );
+      -webkit-backdrop-filter: blur(var(--card-blur, 14px));
+      backdrop-filter: blur(var(--card-blur, 14px));
+    }
+  }
 }
 
 @layer utilities {
@@ -293,5 +398,16 @@
   .reveal {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* ローディング画面（Loader.tsx）。スクリプトが動かなくても閉じ込めないよう、12 秒で必ず消す */
+.loader {
+  animation: loader-giveup 0.8s ease-out 12s forwards;
+}
+@keyframes loader-giveup {
+  to {
+    opacity: 0;
+    visibility: hidden;
   }
 }
