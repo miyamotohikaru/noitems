@@ -15,6 +15,7 @@ import type {
   Bid,
   BidInput,
   PlaceBidResult,
+  ViewerRef,
 } from "./types";
 
 /**
@@ -241,6 +242,7 @@ function toState(
   a: RawAuction,
   list: RawBidList | null,
   nicknames: Map<string, string> = new Map(),
+  viewerId: string | null = null,
 ): AuctionState {
   const startPrice = num(a.start_price);
   const currentBid = num(a.maxBid, startPrice) || startPrice;
@@ -252,8 +254,16 @@ function toState(
       bidderId: customerId || `b${i}`,
       bidderLabel: label(nicknames.get(customerId), i),
       placedAt: toISO(b.bid_date),
+      mine: viewerId !== null && customerId === viewerId,
     };
   });
+
+  // 本人目線。表に出す12件で切る前の、全部の入札から求める
+  const mine = bids.filter((b) => b.mine);
+  const top = bids.reduce<Bid | null>(
+    (best, b) => (!best || b.amount > best.amount ? b : best),
+    null,
+  );
 
   // 実物は "Running"。終了すると "Expired" などに変わる
   const status = a.auction_status?.toLowerCase();
@@ -295,8 +305,10 @@ function toState(
     // Webkul は「延長されたか」を返さないので、この画面では出さない
     extended: false,
     bids: bids.slice(0, 12),
-    // 認証を入れるまで「自分の入札」は判定できない
-    viewer: { isHighest: false, myMaxBid: null },
+    viewer: {
+      isHighest: Boolean(top?.mine),
+      myMaxBid: mine.length ? Math.max(...mine.map((b) => b.amount)) : null,
+    },
     serverNow: new Date(now).toISOString(),
     updatedAt: new Date(now).toISOString(),
   };
@@ -307,7 +319,7 @@ function toState(
 export const webkulAuctionProvider: AuctionProvider = {
   name: "webkul",
 
-  async load(): Promise<AuctionState> {
+  async load(viewer?: ViewerRef): Promise<AuctionState> {
     const auctions = await call<RawAuction[] | { auctions: RawAuction[] }>(
       "/api/shop/auctions.json",
     );
@@ -330,10 +342,11 @@ export const webkulAuctionProvider: AuctionProvider = {
       (bidList?.bids ?? []).map((b) => String(b.shopify_customer_id ?? "")),
     );
 
-    return toState(target, bidList, nicknames);
+    return toState(target, bidList, nicknames, viewer?.customerId ?? null);
   },
 
-  async placeBid({ amount, email }: BidInput): Promise<PlaceBidResult> {
+  async placeBid({ amount, email, customerId }: BidInput): Promise<PlaceBidResult> {
+    const me: ViewerRef = customerId ? { customerId } : null;
     if (!email) {
       return {
         ok: false,
@@ -363,10 +376,10 @@ export const webkulAuctionProvider: AuctionProvider = {
           ok: false,
           code: "UNKNOWN",
           message: res.message ?? "入札できませんでした。",
-          state: await this.load(),
+          state: await this.load(me),
         };
       }
-      return { ok: true, state: await this.load() };
+      return { ok: true, state: await this.load(me) };
     } catch (error) {
       console.error("[webkul] placeBid", error);
       return {

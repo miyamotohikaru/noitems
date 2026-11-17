@@ -59,5 +59,20 @@ export async function createCheckout(
     const reason = json?.data?.cartCreate?.userErrors?.[0]?.message ?? res.status;
     throw new Error(`storefront: cartCreate failed (${reason})`);
   }
-  return url;
+  return withCheckoutParams(url);
+}
+
+/**
+ * checkoutUrl に2つ足す（2026-11-06 にブラウザで確認）。
+ *
+ * - `channel=headless-storefronts` … これが無いと、ストアにパスワードが
+ *   かかっているあいだは**ブラウザでは**パスワード画面に戻される
+ *   （curl では通るので見落としやすい）。付ければパスワードはかけたままでいい。
+ * - `locale=ja` … @inContext(language: JA) だけでは支払い画面が英語のまま。
+ */
+function withCheckoutParams(raw: string): string {
+  const url = new URL(raw);
+  url.searchParams.set("channel", "headless-storefronts");
+  url.searchParams.set("locale", "ja");
+  return url.toString();
 }

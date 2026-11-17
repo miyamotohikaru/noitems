@@ -49,6 +49,7 @@ export async function POST(request: Request) {
       amount: Math.floor(amount),
       requestId,
       email: session?.email,
+      customerId: session?.customerId,
     });
     return NextResponse.json(result, {
       status: result.ok ? 200 : 422,

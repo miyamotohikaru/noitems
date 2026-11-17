@@ -91,11 +91,17 @@ export type BidInput = {
    * 本番ではここが空だと入札できない。mock では無視される。
    */
   email?: string;
+  /** 入札後の state を本人目線で返すため。mock では無視される */
+  customerId?: string;
 };
+
+/** 見ている人。ログインしていれば Shopify の顧客ID */
+export type ViewerRef = { customerId: string } | null;
 
 export interface AuctionProvider {
   readonly name: string;
-  load(): Promise<AuctionState>;
+  /** viewer を渡すと、その人から見た viewer（最高額か・自分の最高入札）を埋める */
+  load(viewer?: ViewerRef): Promise<AuctionState>;
   placeBid(input: BidInput): Promise<PlaceBidResult>;
 }
 
