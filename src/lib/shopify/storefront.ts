@@ -13,6 +13,8 @@ const API_VERSION = "2025-10";
 export async function createCheckout(
   variantId: string,
   email: string,
+  /** カード登録のように、販売プラン付きで買ってもらうとき */
+  opts: { sellingPlanId?: string } = {},
 ): Promise<string> {
   const { domain, token } = storefront();
   if (!domain || !token) throw new Error("storefront: not configured");
@@ -36,6 +38,9 @@ export async function createCheckout(
             {
               merchandiseId: `gid://shopify/ProductVariant/${variantId}`,
               quantity: 1,
+              ...(opts.sellingPlanId
+                ? { sellingPlanId: `gid://shopify/SellingPlan/${opts.sellingPlanId}` }
+                : {}),
             },
           ],
           buyerIdentity: { email, countryCode: "JP" },

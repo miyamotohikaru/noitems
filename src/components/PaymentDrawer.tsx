@@ -47,7 +47,8 @@ export function PaymentDrawer() {
         const next = await fetchWins();
         if (next.length > 0) {
           setWins(next);
-          setOpen(true);
+          // 登録のカードで払っているものだけなら、パネルは開かない（帯で知らせる）
+          setOpen(next.some((w) => !w.autopay));
           return;
         }
         await new Promise((r) => setTimeout(r, 2_000));
@@ -69,7 +70,23 @@ export function PaymentDrawer() {
 
   if (wins.length === 0) return null;
 
-  const total = wins.reduce((n, w) => n + w.amount, 0);
+  // 登録のカードに請求しているものだけなら、払う操作は要らない。帯で知らせるだけ
+  if (wins.every((w) => w.autopay)) {
+    return (
+      <div className="fixed inset-x-0 top-[var(--nav-h)] z-40 bg-ink text-ground-lift">
+        <div className="page py-2.5">
+          <p className="text-[0.8125rem] tracking-[0.08em]">
+            <span className="inline-block">落札した品のお支払いを、</span>
+            <span className="inline-block">ご登録のカードで手続きしています。</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 手で払うものだけを並べる（登録のカードで払っているものは除く）
+  const due = wins.filter((w) => !w.autopay);
+  const total = due.reduce((n, w) => n + w.amount, 0);
 
   async function pay(auctionId: string) {
     setBusy(auctionId);
@@ -131,7 +148,7 @@ export function PaymentDrawer() {
           </div>
 
           <ul className="flex-1 overflow-y-auto px-6 sm:px-8">
-            {wins.map((w) => (
+            {due.map((w) => (
               <li key={w.auctionId} className="border-b border-[var(--rule)] py-6">
                 <p className="text-[0.75rem] tracking-[0.14em] text-ink/62">落札した品</p>
                 <p className="mt-1.5 text-[0.9375rem]">{w.title}</p>
@@ -139,7 +156,7 @@ export function PaymentDrawer() {
                 <p className="mt-0.5 text-[0.75rem] text-ink/62">
                   {kanjiYen(w.amount)}（税込）
                 </p>
-                {wins.length > 1 && (
+                {due.length > 1 && (
                   <button
                     type="button"
                     onClick={() => void pay(w.auctionId)}
@@ -163,10 +180,10 @@ export function PaymentDrawer() {
                 {error}
               </p>
             )}
-            {wins.length === 1 && (
+            {due.length === 1 && (
               <button
                 type="button"
-                onClick={() => void pay(wins[0].auctionId)}
+                onClick={() => void pay(due[0].auctionId)}
                 disabled={Boolean(busy)}
                 className="btn-solid mt-5 w-full"
               >

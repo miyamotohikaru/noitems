@@ -53,6 +53,8 @@ export type Viewer = {
   nickname: string | null;
   /** ログイン済みだが、まだ名前を決めていない */
   needsNickname: boolean;
+  /** ログイン済みだが、まだ支払いのカードを登録していない */
+  needsCard?: boolean;
 };
 
 export async function fetchViewer(): Promise<Viewer | null> {
@@ -83,9 +85,30 @@ export async function postNickname(
   }
 }
 
+/** カード登録の支払い画面（¥0）のURLをもらう。作るのはサーバー */
+export async function startCardRegistration(): Promise<
+  { ok: true; url: string } | { ok: false; message: string }
+> {
+  try {
+    const res = await fetch("/api/card", { method: "POST" });
+    const json = (await res.json()) as { url?: string; error?: string };
+    return res.ok && json.url
+      ? { ok: true, url: json.url }
+      : { ok: false, message: json.error ?? "登録の画面を開けませんでした。" };
+  } catch {
+    return { ok: false, message: "通信に失敗しました。もう一度お試しください。" };
+  }
+}
+
 /* ── 落札後の支払い ─────────────────────────────── */
 
-export type Win = { auctionId: string; title: string; amount: number };
+export type Win = {
+  auctionId: string;
+  title: string;
+  amount: number;
+  /** 登録のカードへ自動で請求している（手動の支払いは要らない） */
+  autopay?: boolean;
+};
 
 /** ログイン中の人の、支払いがまだの落札分。ログインしていなければ空 */
 export async function fetchWins(): Promise<Win[]> {
