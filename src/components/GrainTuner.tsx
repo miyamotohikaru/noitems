@@ -44,6 +44,7 @@ type Tune = Silver & {
   endScale: number;
   turn: number;
   mLength: number;
+  mLinger: number;
   mStart: number;
   mEnd: number;
   mX: number;
@@ -66,6 +67,7 @@ const DEFAULT: Tune = {
   endScale: END_SCALE,
   turn: TURN,
   mLength: MOBILE.length,
+  mLinger: MOBILE.linger,
   mStart: MOBILE.startScale,
   mEnd: MOBILE.endScale,
   mX: MOBILE.endX,
@@ -89,6 +91,7 @@ function applyMotion(g: Tune) {
   heroLayout.endScale = g.endScale;
   Object.assign(mobileLayout, {
     length: g.mLength,
+    linger: g.mLinger,
     startScale: g.mStart,
     endScale: g.mEnd,
     endX: g.mX,
@@ -197,6 +200,8 @@ const GROUPS: { title: string; knobs: Knob[] }[] = [
     knobs: [
       { label: "最初の場面の長さ", hint: "立体だけが映るあいだ。画面の高さの%", min: 110, max: 440, step: 5,
         get: (g) => g.mLength, set: (g, v) => ({ ...g, mLength: v }) },
+      { label: "余韻の長さ", hint: "引ききってから説明が来るまで。画面の高さの%", min: 0, max: 600, step: 10,
+        get: (g) => g.mLinger, set: (g, v) => ({ ...g, mLinger: v }) },
       { label: "はじめの大きさ", hint: "1で画面の短い辺の1.7倍", min: 0.3, max: 1.4, step: 0.01,
         get: (g) => g.mStart, set: (g, v) => ({ ...g, mStart: v }) },
       { label: "引いたときの大きさ", hint: "1で幅の132%", min: 0.3, max: 1.8, step: 0.01,

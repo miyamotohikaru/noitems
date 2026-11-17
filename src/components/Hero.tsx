@@ -72,12 +72,14 @@ export function Hero() {
     const update = () => {
       raf = 0;
       // スマホは最初の場面の長さを調整パネルから変えられる（motion.ts の MOBILE）
-      sec.style.height = isMobile ? `${mobileLayout.length}svh` : "";
+      // 余韻（linger）のぶんだけ長くするが、引く動きは length のぶんで終える
+      const linger = isMobile ? mobileLayout.linger : 0;
+      sec.style.height = isMobile ? `${mobileLayout.length + linger}svh` : "";
       const vw = stage.clientWidth;
       const vh = stage.clientHeight;
       const r = sec.getBoundingClientRect();
-      // 留まっているあいだの進み具合（0 → 1）
-      const p = clamp(-r.top / Math.max(1, r.height - vh));
+      // 留まっているあいだの進み具合（0 → 1）。余韻のあいだは 1 のまま
+      const p = clamp(-r.top / Math.max(1, r.height - vh - (linger / 100) * vh));
 
       // 立体: 前半で引ききる
       const a = ease(clamp(p / (isMobile ? 0.85 : 0.7)));
