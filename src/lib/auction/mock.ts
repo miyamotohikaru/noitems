@@ -3,6 +3,8 @@ import "server-only";
 import {
   AUCTION_STARTS_AT,
   EXTEND_BY_SEC,
+  SHIPPING_FEE_DOMESTIC,
+  SHIPPING_FEE_OVERSEAS,
   EXTEND_WINDOW_SEC,
   LOT_ID,
   MIN_INCREMENT,
@@ -126,6 +128,10 @@ function toPublic(s: MockState): AuctionState {
     extendWindowSec: EXTEND_WINDOW_SEC,
     extendBySec: EXTEND_BY_SEC,
     extended: s.extended,
+    shippingFee: {
+      domestic: SHIPPING_FEE_DOMESTIC,
+      overseas: SHIPPING_FEE_OVERSEAS,
+    },
     bids: s.bids.slice(0, 12),
     viewer: {
       isHighest: Boolean(s.bids[0]?.mine),

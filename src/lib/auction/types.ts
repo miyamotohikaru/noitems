@@ -52,6 +52,8 @@ export type AuctionState = {
   extendBySec: number;
   /** 一度でも延長されたか */
   extended: boolean;
+  /** 送料（円）。落札額と一緒に請求する。国内か海外かは登録の配送先で決まる */
+  shippingFee: { domestic: number; overseas: number };
   /** 新しい順 */
   bids: Bid[];
   viewer: Viewer;
@@ -71,6 +73,7 @@ export type BidErrorCode =
   | "ENDED" // もう終わっている
   | "OUTBID" // 送っている間に他の人が上回った
   | "AUTH_REQUIRED" // 本人確認が要る（認証を入れたら使う）
+  | "CARD_REQUIRED" // 入札の前に、支払いのカード登録が要る
   | "RATE_LIMITED"
   | "NETWORK"
   | "UNKNOWN";

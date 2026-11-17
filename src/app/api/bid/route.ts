@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { auction } from "@/lib/auction";
+import { useWebkul } from "@/lib/auction/config";
 import type { BidErrorCode, PlaceBidResult } from "@/lib/auction/types";
 import { readSession } from "@/lib/session";
+import { canAutopay } from "@/lib/shopify/admin";
+import { findCard } from "@/lib/shopify/autopay";
 import { canLogin } from "@/lib/shopify/config";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +27,29 @@ export async function POST(request: Request) {
       "入札するにはログインしてください。",
       401,
     );
+  }
+
+  // 落札したら登録のカードに請求するので、登録の無い人は入札できない。
+  // 確かめられなかったときも入れない（払えない落札を作らないため）
+  if (session && useWebkul && canAutopay()) {
+    let card = null;
+    try {
+      card = await findCard(session.customerId);
+    } catch (error) {
+      console.error("[bid] findCard failed", error);
+      return bad(
+        "NETWORK",
+        "カードの登録を確かめられませんでした。入札は成立していません。もう一度お試しください。",
+        503,
+      );
+    }
+    if (!card) {
+      return bad(
+        "CARD_REQUIRED",
+        "入札の前に、お支払いのカードを登録してください。",
+        403,
+      );
+    }
   }
 
   let amount: unknown;

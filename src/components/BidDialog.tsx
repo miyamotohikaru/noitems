@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { kanjiYen, jstDateTime, yen } from "@/lib/format";
-import { fetchViewer, postNickname, type Viewer } from "@/lib/auctionClient";
+import {
+  fetchViewer,
+  postNickname,
+  startCardRegistration,
+  type Viewer,
+} from "@/lib/auctionClient";
 import { nextMinimumBid, validateBid, type AuctionState } from "@/lib/auction/types";
 import type { PlaceBidResult } from "@/lib/auction/types";
 
@@ -10,9 +15,10 @@ import type { PlaceBidResult } from "@/lib/auction/types";
  * 入札までの段。
  *   signin   … ログインしていない
  *   nickname … ログイン済みだが、記録に出す名前を決めていない
+ *   card     … 支払いのカードと配送先を、まだ登録していない
  *   input    … 金額を入れる
  */
-type Step = "signin" | "nickname" | "input" | "confirm" | "done";
+type Step = "signin" | "nickname" | "card" | "input" | "confirm" | "done";
 
 /** 最低額から 入札単位×n を足した候補 */
 const QUICK = [0, 4, 9];
@@ -39,6 +45,8 @@ export function BidDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<AuctionState | null>(null);
+  /** カード登録の画面を別のタブで開いたあと */
+  const [cardOpened, setCardOpened] = useState(false);
   /** 開いている最中に最低額が上がったか */
   const [floorRaised, setFloorRaised] = useState<number | null>(null);
   const openedFloor = useRef(floor);
@@ -64,6 +72,7 @@ export function BidDialog({
         if (!v?.available) return;
         if (!v.signedIn) setStep("signin");
         else if (v.needsNickname) setStep("nickname");
+        else if (v.needsCard) setStep("card");
       });
     } else if (!open && el.open) {
       el.close();
@@ -107,7 +116,7 @@ export function BidDialog({
         setStep("done");
       } else {
         setError(result.message);
-        setStep("input");
+        setStep(result.code === "CARD_REQUIRED" ? "card" : "input");
       }
     } catch {
       setError(
@@ -130,8 +139,48 @@ export function BidDialog({
       return;
     }
     setViewer((v) => (v ? { ...v, nickname, needsNickname: false } : v));
+    if (viewer?.needsCard) {
+      setStep("card");
+      return;
+    }
     setStep("input");
     requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  /**
+   * 登録の画面は別のタブで開く。このタブは入札の途中のまま残しておき、
+   * 戻ってきたら「登録を確かめる」で続きから入れるようにする。
+   * ⚠️ タブは先に開いておく。URL を待ってから開くとポップアップとして止められる。
+   */
+  async function openCard() {
+    setBusy(true);
+    setError(null);
+    const tab = window.open("", "_blank");
+    const result = await startCardRegistration();
+    setBusy(false);
+    if (!result.ok) {
+      tab?.close();
+      setError(result.message);
+      return;
+    }
+    if (tab) tab.location.href = result.url;
+    else window.location.assign(result.url);
+    setCardOpened(true);
+  }
+
+  async function checkCard() {
+    setBusy(true);
+    setError(null);
+    const v = await fetchViewer();
+    setBusy(false);
+    if (v) setViewer(v);
+    if (v && !v.needsCard) {
+      setCardOpened(false);
+      setStep("input");
+      requestAnimationFrame(() => inputRef.current?.focus());
+      return;
+    }
+    setError("まだ登録を確かめられません。登録の画面で最後まで進んだか、お確かめください。");
   }
 
   const overFloorRatio = amount !== null && amount > floor * 2;
@@ -157,7 +206,9 @@ export function BidDialog({
               ? "ログイン"
               : step === "nickname"
                 ? "お名前を決める"
-                : "入札する"}
+                : step === "card"
+                  ? "カードを登録する"
+                  : "入札する"}
         </h2>
         <button
           type="button"
@@ -189,7 +240,7 @@ export function BidDialog({
           <ul className="mt-5 space-y-2 border-y border-[var(--rule)] py-5 text-[0.8125rem] leading-[1.9] text-ink/78">
             <li>メールアドレスに届く番号を入れるだけです。パスワードは要りません。</li>
             <li>はじめての方も、その場でご登録になります。</li>
-            <li>お支払いの情報は、落札後のチェックアウトまでお預かりしません。</li>
+            <li>入札の前に、お支払いのカードと配送先をご登録いただきます。落札しなかった場合は請求されません。</li>
           </ul>
 
           <a href="/api/auth/login" className="btn-solid mt-7 block w-full text-center">
@@ -254,6 +305,65 @@ export function BidDialog({
             </p>
           </fieldset>
         </form>
+      ) : step === "card" ? (
+        <div className="px-6 pb-7 sm:px-9 sm:pb-9">
+          <p className="mt-6 text-[0.875rem] leading-[1.95]">
+            入札の前に、お支払いのカードと配送先をご登録ください。
+          </p>
+
+          <ul className="mt-5 space-y-2 border-y border-[var(--rule)] py-5 text-[0.8125rem] leading-[1.9] text-ink/78">
+            <li>登録は0円です。落札しなかった場合は、何も請求されません。</li>
+            <li>
+              落札した場合は、落札額と送料（国内 {yen(state.shippingFee.domestic)}／海外{" "}
+              {yen(state.shippingFee.overseas)}）を、このカードにまとめて請求します。
+            </li>
+            <li>送り先は、ここで入れた配送先です。</li>
+          </ul>
+
+          {error && (
+            <p role="alert" className="mt-4 text-[0.8125rem] leading-[1.9] text-alert">
+              {error}
+            </p>
+          )}
+
+          {cardOpened ? (
+            <>
+              <p className="mt-6 text-[0.8125rem] leading-[1.9]">
+                別のタブで登録の画面を開きました。
+                登録が終わったら、このタブに戻って下のボタンを押してください。
+              </p>
+              <button
+                type="button"
+                onClick={() => void checkCard()}
+                disabled={busy}
+                className="btn-solid mt-5 w-full"
+              >
+                {busy ? "確かめています" : "登録を確かめて入札へ進む"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void openCard()}
+                disabled={busy}
+                className="btn-line mt-3 w-full"
+              >
+                登録の画面をもう一度開く
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void openCard()}
+              disabled={busy}
+              className="btn-solid mt-7 w-full"
+            >
+              {busy ? "登録の画面を開いています" : "Shopify でカードを登録する"}
+            </button>
+          )}
+
+          <p className="mt-4 text-[0.6875rem] leading-[1.95] text-ink/70">
+            登録の画面は Shopify のものです。カードの番号がこのサイトを通ることはありません。
+          </p>
+        </div>
       ) : step === "done" && done ? (
         <div className="px-6 pb-7 sm:px-9 sm:pb-9">
           <p className="num mt-6 text-[2rem] font-extralight leading-none">
@@ -270,8 +380,8 @@ export function BidDialog({
           </p>
 
           <p className="mt-5 text-[0.75rem] leading-[1.95] text-ink/70">
-            終了時に最高額だった場合、ご登録の連絡先に落札のご案内をお送りします。
-            お支払いは Shopify のチェックアウトで承ります。
+            終了時に最高額だった場合、ご登録のカードに落札額と送料をまとめて請求し、
+            ご登録の連絡先にご案内をお送りします。
           </p>
 
           <button type="button" onClick={onClose} className="btn-solid mt-7 w-full">
@@ -427,7 +537,8 @@ export function BidDialog({
 
             <p id="bid-help" className="mt-4 text-[0.6875rem] leading-[1.95] text-ink/70">
               入札単位 {yen(state.minIncrement)}／一度の上限 {yen(state.maxBid)}。
-              入札は取り消せません。お支払いは落札後、Shopify のチェックアウトで承ります。
+              入札は取り消せません。落札した場合は、ご登録のカードに落札額と送料（国内{" "}
+              {yen(state.shippingFee.domestic)}／海外 {yen(state.shippingFee.overseas)}）をまとめて請求します。
             </p>
           </fieldset>
         </form>

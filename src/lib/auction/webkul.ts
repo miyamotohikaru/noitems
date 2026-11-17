@@ -5,6 +5,8 @@ import {
   EXTEND_WINDOW_SEC,
   LOT_ID,
   MIN_INCREMENT,
+  SHIPPING_FEE_DOMESTIC,
+  SHIPPING_FEE_OVERSEAS,
   bidCeiling,
   webkul,
 } from "./config";
@@ -304,6 +306,10 @@ function toState(
     extendBySec: toSeconds(a.extend_deadline_by, EXTEND_BY_SEC),
     // Webkul は「延長されたか」を返さないので、この画面では出さない
     extended: false,
+    shippingFee: {
+      domestic: SHIPPING_FEE_DOMESTIC,
+      overseas: SHIPPING_FEE_OVERSEAS,
+    },
     bids: bids.slice(0, 12),
     viewer: {
       isHighest: Boolean(top?.mine),

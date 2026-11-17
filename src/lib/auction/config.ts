@@ -36,6 +36,16 @@ export const AUCTION_ENDS_AT = "2026-01-10T21:00:00+09:00";
  */
 export const DEMO_ROLL_FORWARD = process.env.VERCEL_ENV !== "production";
 
+/**
+ * 送料（円）。落札額と一緒に、登録のカードへ請求する。
+ * 国内か海外かは、カード登録のときに入れてもらった配送先の国で決める。
+ *
+ * ⚠️ 変えるのはオークションが始まる前だけ。入札した人はこの額を見て決めている。
+ * いまの値は仮（2026-11-17 決定）。本番の値はヤマトの見積もりを見て決める。
+ */
+export const SHIPPING_FEE_DOMESTIC = 10_000;
+export const SHIPPING_FEE_OVERSEAS = 10_000;
+
 /** 残り5分を切ってからの入札で、5分延長する */
 export const EXTEND_WINDOW_SEC = 5 * 60;
 export const EXTEND_BY_SEC = 5 * 60;

@@ -1,10 +1,14 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { useWebkul } from "@/lib/auction/config";
 import { unpaidWinsFor } from "@/lib/auction/webkul";
 import { readSession } from "@/lib/session";
+import { canAutopay } from "@/lib/shopify/admin";
+import { findCard, settledResult, settleWin } from "@/lib/shopify/autopay";
 import { createCheckout } from "@/lib/shopify/storefront";
 
 export const dynamic = "force-dynamic";
+/** 登録のカードへの請求（after）が結果を待つ時間を含める */
+export const maxDuration = 60;
 
 const NO_STORE = { "cache-control": "no-store" };
 
@@ -14,8 +18,10 @@ const NO_STORE = { "cache-control": "no-store" };
  * ⚠️ 誰の落札分かは**ログイン状態（Cookie）の顧客IDからしか決めない**。
  *    画面から送られた ID を信じると、他人の落札分の支払い画面を開けてしまう。
  *
- * GET  … ログイン中の人の、支払いがまだの落札分（無ければ空）
- * POST … { auctionId } の支払い画面のURLを作って返す
+ * GET  … ログイン中の人の、支払いがまだの落札分（無ければ空）。
+ *        カード登録があれば、その場で請求を始めて autopay: true を付けて返す
+ * POST … { auctionId } の支払い画面のURLを作って返す。
+ *        カード登録が無い・カードが通らなかったときの、手動の支払い
  */
 export async function GET() {
   const session = await readSession();
@@ -25,17 +31,26 @@ export async function GET() {
 
   try {
     const wins = await unpaidWinsFor(session.customerId);
-    return NextResponse.json(
-      {
+    const card =
+      wins.length > 0 && canAutopay() ? await findCard(session.customerId) : null;
+
+    const out = await Promise.all(
+      wins.map(async (w) => {
+        // カードが通らなかったものは、手動の支払い画面に回す
+        const done = card ? await settledResult(w.auctionId) : null;
+        const autopay = Boolean(card) && done?.status !== "failed";
+        if (autopay) {
+          after(() =>
+            settleWin({ ...w, customerId: session.customerId }).catch((e) =>
+              console.error("[autopay] settleWin", e),
+            ),
+          );
+        }
         // バリエーションIDは画面に渡さない。支払い画面はサーバーが作る
-        wins: wins.map(({ auctionId, title, amount }) => ({
-          auctionId,
-          title,
-          amount,
-        })),
-      },
-      { headers: NO_STORE },
+        return { auctionId: w.auctionId, title: w.title, amount: w.amount, autopay };
+      }),
     );
+    return NextResponse.json({ wins: out }, { headers: NO_STORE });
   } catch (error) {
     console.error("[checkout] wins failed", error);
     return NextResponse.json({ wins: [] }, { headers: NO_STORE });
