@@ -11,8 +11,9 @@ import { createCheckout } from "./storefront";
  *  1. 入札の前に、¥0 の「入札のためのカード登録」を買ってもらう。
  *     定期購入の仕組み（販売プラン）を使っているので、カードと住所を預かった
  *     「契約」ができる。Shopify が勝手に請求することはない（請求はこちらから起こす）。
- *  2. 落札したら、その契約に「落札額の行」と「送料」を足して1回だけ請求し、
- *     終わったら行を外し、送料を0に戻す。
+ *  2. 落札したら、その契約の「カード登録」の行を「落札額の行」に入れ替え、
+ *     送料を足して1回だけ請求する。終わったらカード登録の行に戻し、送料を0に戻す。
+ *     （カード登録の行を残したままだと、注文とメールに「カード登録 ¥0」が毎回載る）
  *
  * 請求は冪等キー（オークションID）で守っている。同じキーで何度呼んでも
  * Shopify は同じ請求を返すだけで、二重には引き落とさない。
@@ -23,6 +24,12 @@ import { createCheckout } from "./storefront";
 const CARD_VARIANT_ID = "41058488680577";
 /** 「落札したときだけ請求」の販売プラン */
 const CARD_SELLING_PLAN_ID = "12755992705";
+const CARD_SELLING_PLAN_NAME = "落札したときだけ請求";
+/** 注文とメールで、落札額の行の下に出る名前（無いと「毎年お届け」と読める英語が出る） */
+const WIN_LINE_NAME = "1回のみのお支払い / One-time payment";
+
+const isCardLine = (l: { variantId: string | null }) =>
+  (l.variantId ?? "").endsWith(`/${CARD_VARIANT_ID}`);
 
 const customerGid = (id: string) =>
   id.startsWith("gid://") ? id : `gid://shopify/Customer/${id}`;
@@ -55,6 +62,8 @@ export type Card = {
   countryCode: string | null;
   address: Address | null;
   shippingOption: ShippingOption | null;
+  /** カード登録の行。前回の戻しに失敗していると無い（次の戻しで付け直す） */
+  cardLineId: string | null;
   /** 登録の行以外（＝前回の請求の外し忘れ）。請求の前に外す */
   extraLineIds: string[];
 };
@@ -105,12 +114,13 @@ export async function findCard(customerId: string): Promise<Card | null> {
     { id: customerGid(customerId) },
   );
 
-  const isCardLine = (l: { variantId: string | null }) =>
-    (l.variantId ?? "").endsWith(`/${CARD_VARIANT_ID}`);
-
-  const c = data.customer?.subscriptionContracts.nodes.find(
-    (n) => n.status === "ACTIVE" && n.lines.nodes.some(isCardLine),
+  // 見えるのはこのアプリが作った契約だけ（Webkul などの契約は出てこない）。
+  // カード登録の行があるものを優先し、無ければ（請求の後の戻しに失敗した）
+  // いちばん新しい有効な契約を使う。カードと住所はそのまま生きている
+  const active = (data.customer?.subscriptionContracts.nodes ?? []).filter(
+    (n) => n.status === "ACTIVE",
   );
+  const c = active.find((n) => n.lines.nodes.some(isCardLine)) ?? active[0];
   if (!c) return null;
 
   return {
@@ -118,6 +128,7 @@ export async function findCard(customerId: string): Promise<Card | null> {
     countryCode: c.deliveryMethod?.address?.countryCode ?? null,
     address: c.deliveryMethod?.address ?? null,
     shippingOption: c.deliveryMethod?.shippingOption ?? null,
+    cardLineId: c.lines.nodes.find(isCardLine)?.id ?? null,
     extraLineIds: c.lines.nodes.filter((l) => !isCardLine(l)).map((l) => l.id),
   };
 }
@@ -241,16 +252,41 @@ async function setDelivery(draftId: string, card: Card, fee: number, title: stri
   must("draftUpdate", r);
 }
 
-/** 請求したあと、契約を登録したときの姿（¥0・送料0）に戻す */
+async function addLine(draftId: string, input: Record<string, unknown>) {
+  const { subscriptionDraftLineAdd: a } = await adminGql<{
+    subscriptionDraftLineAdd: UserErrors;
+  }>(
+    `mutation($d: ID!, $i: SubscriptionLineInput!) {
+      subscriptionDraftLineAdd(draftId: $d, input: $i) { lineAdded { id } userErrors { message } }
+    }`,
+    { d: draftId, i: input },
+  );
+  must("lineAdd", a);
+}
+
+/**
+ * 請求したあと、契約を登録したときの姿（カード登録の行だけ・送料0）に戻す。
+ * カード登録の行は、販売プランごと付け直せば元と同じになる（2026-11-20 に確認）
+ */
 async function restore(card: Card) {
   const fresh = await findCardByContract(card);
   await editContract(card.contractId, async (draftId) => {
+    // 先に足してから外す（行が0本の契約にしないため）
+    if (!fresh.cardLineId) {
+      await addLine(draftId, {
+        productVariantId: `gid://shopify/ProductVariant/${CARD_VARIANT_ID}`,
+        quantity: 1,
+        currentPrice: 0,
+        sellingPlanId: `gid://shopify/SellingPlan/${CARD_SELLING_PLAN_ID}`,
+        sellingPlanName: CARD_SELLING_PLAN_NAME,
+      });
+    }
     for (const id of fresh.extraLineIds) await removeLine(draftId, id);
     await setDelivery(draftId, card, 0, card.shippingOption?.title ?? null);
   });
 }
 
-/** 足した行のIDを知るため、同じ契約を読み直す */
+/** 今の行の姿を知るため、同じ契約を読み直す */
 async function findCardByContract(card: Card): Promise<Card> {
   const { subscriptionContract: c } = await adminGql<{
     subscriptionContract: {
@@ -260,11 +296,11 @@ async function findCardByContract(card: Card): Promise<Card> {
     `query($id: ID!) { subscriptionContract(id: $id) { lines(first: 10) { nodes { id variantId } } } }`,
     { id: card.contractId },
   );
+  const lines = c?.lines.nodes ?? [];
   return {
     ...card,
-    extraLineIds: (c?.lines.nodes ?? [])
-      .filter((l) => !(l.variantId ?? "").endsWith(`/${CARD_VARIANT_ID}`))
-      .map((l) => l.id),
+    cardLineId: lines.find(isCardLine)?.id ?? null,
+    extraLineIds: lines.filter((l) => !isCardLine(l)).map((l) => l.id),
   };
 }
 
@@ -304,25 +340,17 @@ export async function settleWin(win: {
     const fee = shippingFeeFor(card.countryCode);
 
     await editContract(card.contractId, async (draftId) => {
-      // 前回の外し忘れがあれば、先に外す（一緒に請求しないため）
+      // 落札額の行を先に足す（行が0本の契約にしないため）
+      await addLine(draftId, {
+        productVariantId: `gid://shopify/ProductVariant/${win.variantId}`,
+        quantity: 1,
+        currentPrice: win.amount,
+        sellingPlanName: WIN_LINE_NAME,
+      });
+      // 前回の外し忘れと、カード登録の行を外す（注文に載せないため）。
+      // カード登録の行は請求のあと restore() で付け直す
       for (const id of card.extraLineIds) await removeLine(draftId, id);
-
-      const { subscriptionDraftLineAdd: a } = await adminGql<{
-        subscriptionDraftLineAdd: UserErrors;
-      }>(
-        `mutation($d: ID!, $i: SubscriptionLineInput!) {
-          subscriptionDraftLineAdd(draftId: $d, input: $i) { lineAdded { id } userErrors { message } }
-        }`,
-        {
-          d: draftId,
-          i: {
-            productVariantId: `gid://shopify/ProductVariant/${win.variantId}`,
-            quantity: 1,
-            currentPrice: win.amount,
-          },
-        },
-      );
-      must("lineAdd", a);
+      if (card.cardLineId) await removeLine(draftId, card.cardLineId);
 
       await setDelivery(draftId, card, fee, "送料 / Shipping");
     });

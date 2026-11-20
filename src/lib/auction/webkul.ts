@@ -240,11 +240,46 @@ function label(nickname: string | undefined, i: number): string {
   return nickname ?? `入札者 ${String(i + 1).padStart(2, "0")}`;
 }
 
+/* ── 入札単位 ───────────────────────────────────────
+   Webkul のオークションごとの刻み（bid rule）に合わせる。
+   サイト側で決め打ちすると、Webkul と食い違って額がずれる
+   （100円刻みのオークションで、1万円刻みの額が入った）。
+   刻みは金額の帯ごとに決まる。読めなければ config の MIN_INCREMENT。 */
+
+type BidRule = { bid_from: string; bid_to: string; rate: string };
+
+const ruleCache = new Map<string, { rules: BidRule[]; at: number }>();
+
+async function bidRules(auctionId: string): Promise<BidRule[]> {
+  const hit = ruleCache.get(auctionId);
+  // 刻みは開始前にしか変えないので、5分は使い回す
+  if (hit && Date.now() - hit.at < 5 * 60_000) return hit.rules;
+  try {
+    const res = await call<{ bid_rule?: BidRule[] }>(
+      `/api/shop/auction/${auctionId}/bid-rule.json`,
+    );
+    const rules = res.bid_rule ?? [];
+    ruleCache.set(auctionId, { rules, at: Date.now() });
+    return rules;
+  } catch {
+    return hit?.rules ?? [];
+  }
+}
+
+function incrementFor(rules: BidRule[], currentBid: number): number {
+  const rule = rules.find(
+    (r) => currentBid >= num(r.bid_from) && currentBid < num(r.bid_to),
+  );
+  const rate = num(rule?.rate);
+  return rate > 0 ? rate : MIN_INCREMENT;
+}
+
 function toState(
   a: RawAuction,
   list: RawBidList | null,
   nicknames: Map<string, string> = new Map(),
   viewerId: string | null = null,
+  rules: BidRule[] = [],
 ): AuctionState {
   const startPrice = num(a.start_price);
   const currentBid = num(a.maxBid, startPrice) || startPrice;
@@ -295,7 +330,7 @@ function toState(
               : "live",
     currentBid,
     startPrice,
-    minIncrement: MIN_INCREMENT,
+    minIncrement: incrementFor(rules, currentBid),
     maxBid: bidCeiling(currentBid),
     bidCount: num(
       a.totalbid != null ? String(a.totalbid) : String(list?.total_bids ?? ""),
@@ -344,11 +379,14 @@ export const webkulAuctionProvider: AuctionProvider = {
     }
 
     // ニックネームが引けなければ空のまま。記録自体は出す
-    const nicknames = await nicknamesFor(
-      (bidList?.bids ?? []).map((b) => String(b.shopify_customer_id ?? "")),
-    );
+    const [nicknames, rules] = await Promise.all([
+      nicknamesFor(
+        (bidList?.bids ?? []).map((b) => String(b.shopify_customer_id ?? "")),
+      ),
+      bidRules(String(target.id)),
+    ]);
 
-    return toState(target, bidList, nicknames, viewer?.customerId ?? null);
+    return toState(target, bidList, nicknames, viewer?.customerId ?? null, rules);
   },
 
   async placeBid({ amount, email, customerId }: BidInput): Promise<PlaceBidResult> {
