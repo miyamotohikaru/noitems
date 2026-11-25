@@ -38,7 +38,8 @@
   --page: 78rem;
   /* 上の帯の1段目の高さ。--nav-h は帯全体の高さ（入札のページでは下に2段目が付く） */
   --nav-row: 4.5rem;
-  --nav-sub: 2.25rem;
+  /* 2段目は、もと下端にあった控えのバーと同じ高さ（ボタン 2.75rem ＋ 上下 0.625rem） */
+  --nav-sub: 4rem;
   --nav-h: var(--nav-row);
   /* 節の縦のリズムは2値だけ。空白に根拠を持たせる */
   --gap-major: clamp(4.5rem, 9vw, 9rem);
@@ -442,9 +443,9 @@
   }
 }
 
-/* 上の帯: AuctionRoom が金額と入札ボタンを差し込んだら、控えの「入札する」は隠す（SiteHeader.tsx） */
-#header-bid:not(:empty) + .header-bid-fallback {
-  display: none;
+/* 上の帯: 2段目に黒い「入札する」が出たら、1段目の「入札する」は見えなくする（並びは崩さない。SiteHeader.tsx） */
+:root:has(#header-sub:not(:empty)) .header-bid-fallback {
+  visibility: hidden;
 }
 
 /* 上の帯の2段目（金額と残り時間）があるページだけ、帯全体の高さを2段ぶんにする（SiteHeader.tsx） */

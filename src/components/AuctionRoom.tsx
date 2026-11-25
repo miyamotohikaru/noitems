@@ -7,8 +7,9 @@ import type { AuctionState } from "@/lib/auction/types";
 import { fetchAuction, newRequestId, postBid } from "@/lib/auctionClient";
 import { auctionPageUrl, isHandoff } from "@/lib/handoff";
 import { jstDateTime, yen } from "@/lib/format";
-import { legal } from "@/lib/lot";
+import { legal, site } from "@/lib/lot";
 import { tradeTerms } from "@/lib/tradeTerms";
+import { Bracket } from "./Bracket";
 import { BidDialog } from "./BidDialog";
 import { Countdown, coarseRemaining, useRemaining, useServerOffset } from "./Countdown";
 import { openPayment } from "./PaymentDrawer";
@@ -21,13 +22,11 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
   const [mounted, setMounted] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  /** 上の帯の差し込み口（SiteHeader の #header-bid = 入札ボタン、#header-sub = 2段目の金額と残り時間） */
-  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  /** 上の帯の2段目の差し込み口（SiteHeader の #header-sub） */
   const [subSlot, setSubSlot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    setHeaderSlot(document.getElementById("header-bid"));
     setSubSlot(document.getElementById("header-sub"));
   }, []);
 
@@ -356,52 +355,52 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
       </section>
       </Card>
 
-      {/* 上の帯の2段目: いまの金額と残り時間（下端の控えのバーは 2026-11-25 に上の帯へ移した） */}
+      {/* 上の帯の2段目。もとは入札カードを追い越したときだけ下端に出していた控えのバーを、
+          見た目はそのままに、はじめからずっと出す（2026-11-25 ユーザー指定
+          「前にフッターにあったデザインがすごくオシャレだから、それがそのまま2段目に」） */}
       {subSlot &&
         createPortal(
-          <>
-            <span className="flex items-baseline gap-3">
-              <span className="label-jp">
-                {/* 入札の札（上）と同じ呼び分け */}
-                {isHandoff ? "開始価格" : ended ? "落札額" : scheduled ? "開始価格" : "現在の入札額"}
-              </span>
-              <span className="num text-[0.9375rem] font-light md:text-[1rem]">
+          <div className="page flex h-full items-center gap-4">
+            <Bracket
+              gap={3.4}
+              title={site.title}
+              className="hidden h-4 w-auto shrink-0 sm:block"
+            />
+            <div className="flex min-w-0 flex-1 items-baseline gap-4 sm:justify-end">
+              <span className="num text-[1.0625rem] font-light">
                 {yen(state.currentBid)}
               </span>
-            </span>
-            <span
-              className={`num whitespace-nowrap text-[0.75rem] md:text-[0.8125rem] ${nearEnd ? "text-alert" : "text-ink/78"}`}
-            >
-              {ended ? "終了しました" : (
-                <>
-                  残り <Countdown endsAt={state.endsAt} offsetMs={offset} />
-                </>
-              )}
-            </span>
-          </>,
-          subSlot,
-        )}
-
-      {/* 上の帯の入札ボタン */}
-      {headerSlot &&
-        createPortal(
-          <>
+              <span
+                className={`num text-[0.8125rem] ${nearEnd ? "text-alert" : "text-ink/78"}`}
+              >
+                {ended ? (
+                  "終了しました"
+                ) : (
+                  <>
+                    残り <Countdown endsAt={state.endsAt} offsetMs={offset} />
+                  </>
+                )}
+              </span>
+            </div>
             {!ended &&
               (isHandoff ? (
-                <a href={auctionPageUrl} className="btn-line shrink-0">
+                <a
+                  href={auctionPageUrl}
+                  className="btn-line shrink-0 border-ink bg-ink text-ground-lift hover:bg-ink"
+                >
                   入札する
                 </a>
               ) : (
                 <button
                   type="button"
                   onClick={() => setDialogOpen(true)}
-                  className="btn-line shrink-0"
+                  className="btn-line shrink-0 border-ink bg-ink text-ground-lift hover:bg-ink"
                 >
                   入札する
                 </button>
               ))}
-          </>,
-          headerSlot,
+          </div>,
+          subSlot,
         )}
 
       <BidDialog

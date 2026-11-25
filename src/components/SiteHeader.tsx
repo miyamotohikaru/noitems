@@ -46,24 +46,17 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        {/* 入札ボタン。中身は AuctionRoom が #header-bid へ差し込む。
-            オークションが読めなかったときだけ下の「入札する」が残る（globals.css の .header-bid-fallback） */}
-        <div className="flex shrink-0 items-center gap-4 md:gap-6">
-          <div id="header-bid" className="contents" />
-          <a href="#auction" className="header-bid-fallback btn-line shrink-0">
-            入札する
-          </a>
-        </div>
+        {/* 2段目（下）に黒い「入札する」が出ているあいだは、こちらは見えなくする。
+            オークションが読めなかったときだけ残る（globals.css の .header-bid-fallback） */}
+        <a href="#auction" className="header-bid-fallback btn-line shrink-0">
+          入札する
+        </a>
       </div>
 
-      {/* 2段目: いまの金額と残り時間。はじめからずっと出す（2026-11-25 ユーザー指定
-          「残り時間と金額がヘッダーに欲しい」「ヘッダーの一個下」。それまでは下端のバーに出していた）。
+      {/* 2段目: 金額・残り時間・入札する。もとは下端に出していた控えのバー（2026-11-25 ユーザー指定で上へ）。
           中身は AuctionRoom が #header-sub へ差し込む */}
-      <div className="border-t border-[var(--rule)] bg-ground/82 backdrop-blur-md">
-        <div
-          id="header-sub"
-          className="page flex h-[var(--nav-sub)] items-center justify-between gap-4"
-        />
+      <div className="border-t border-[var(--rule)] bg-ground/92 backdrop-blur-md">
+        <div id="header-sub" className="h-[var(--nav-sub)]" />
       </div>
     </header>
   );
