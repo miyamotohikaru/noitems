@@ -72,7 +72,9 @@ export function Concept() {
  */
 export function Forms() {
   return (
-    <section className="page py-[var(--gap-major)]">
+    // PC では、後ろの立体をすりガラス越しにぼんやり見せる（2026-11-25 ユーザー指定。globals.css の .shade-ground）
+    <section className="shade-ground">
+      <div className="page py-[var(--gap-major)]">
       {/* 添え書き（密に畳まれた塊から…）は 2026-11-25 ユーザーの指示で外した */}
       <SectionHead>{forms.heading}</SectionHead>
 
@@ -99,6 +101,7 @@ export function Forms() {
           ))}
         </FormsSlide>
       </Reveal>
+      </div>
     </section>
   );
 }

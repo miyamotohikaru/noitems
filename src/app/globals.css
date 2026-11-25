@@ -286,6 +286,33 @@
     background-size: 100% 1px;
   }
 
+  /*
+   * かたちの場面（PC）。地の色のすりガラスを敷き、後ろの立体は位置そのままでぼんやり透かす
+   * （2026-11-25 ユーザー指定。並びの絵と、くっきりした立体がぶつかって見えていた）。
+   * 濃さとぼかしはスマホのカードと同じ値（調整パネルの「カード（スマホ）」）を使う。
+   * スマホはカードの地がその役をするので何もしない。
+   */
+  .shade-ground {
+    position: relative;
+    isolation: isolate;
+  }
+  @media (min-width: 768px) {
+    .shade-ground::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background: color-mix(
+        in srgb,
+        var(--color-ground) calc(var(--card-alpha, 0.88) * 100%),
+        transparent
+      );
+      -webkit-backdrop-filter: blur(var(--card-blur, 14px));
+      backdrop-filter: blur(var(--card-blur, 14px));
+    }
+  }
+
   /* スマホの、下から重なってくるカード（components/Card.tsx）。PC ではただの囲み */
   .forms-hold {
     display: none;
