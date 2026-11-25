@@ -73,7 +73,8 @@ export function Concept() {
 export function Forms() {
   return (
     <section className="page py-[var(--gap-major)]">
-      <SectionHead lead={forms.lead}>{forms.heading}</SectionHead>
+      {/* 添え書き（密に畳まれた塊から…）は 2026-11-25 ユーザーの指示で外した */}
+      <SectionHead>{forms.heading}</SectionHead>
 
       <Reveal delay={120}>
         <FormsSlide>
@@ -84,7 +85,7 @@ export function Forms() {
               style={{ flex: `${item.w} 1 0%` }}
               className="flex min-w-[7.5rem] shrink-0 flex-col md:min-w-0 md:shrink"
             >
-              {/* 像は上下中央、番号は5点で同じ高さに揃える */}
+              {/* 像は上下中央。下の番号（01〜05）は 2026-11-25 ユーザーの指示で外した */}
               <div className="flex flex-1 items-center">
                 <img
                   src={item.src}
@@ -94,9 +95,6 @@ export function Forms() {
                   className="cutout w-full"
                 />
               </div>
-              <span className="num mt-6 block text-[0.6875rem] tracking-[0.2em] text-ink/68">
-                {item.no}
-              </span>
             </li>
           ))}
         </FormsSlide>

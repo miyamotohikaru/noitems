@@ -46,9 +46,16 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <a href="#auction" className="btn-line shrink-0">
-          入札する
-        </a>
+        {/* いまの金額と入札ボタン。はじめから上の帯にずっと出す（2026-11-25 ユーザー指定。
+            それまでは入札カードを追い越したときだけ下端に出していた）。
+            中身は AuctionRoom が #header-bid へ差し込む。オークションが読めなかったときだけ
+            下の「入札する」が残る（globals.css の .header-bid-fallback） */}
+        <div className="flex shrink-0 items-center gap-4 md:gap-6">
+          <div id="header-bid" className="contents" />
+          <a href="#auction" className="header-bid-fallback btn-line shrink-0">
+            入札する
+          </a>
+        </div>
       </div>
     </header>
   );

@@ -2,13 +2,13 @@
 
 import { Card } from "./Card";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AuctionState } from "@/lib/auction/types";
 import { fetchAuction, newRequestId, postBid } from "@/lib/auctionClient";
 import { auctionPageUrl, isHandoff } from "@/lib/handoff";
 import { jstDateTime, yen } from "@/lib/format";
-import { legal, site } from "@/lib/lot";
+import { legal } from "@/lib/lot";
 import { tradeTerms } from "@/lib/tradeTerms";
-import { Bracket } from "./Bracket";
 import { BidDialog } from "./BidDialog";
 import { Countdown, coarseRemaining, useRemaining, useServerOffset } from "./Countdown";
 import { openPayment } from "./PaymentDrawer";
@@ -16,13 +16,18 @@ import { openPayment } from "./PaymentDrawer";
 export function AuctionRoom({ initial }: { initial: AuctionState }) {
   const [state, setState] = useState(initial);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [barShown, setBarShown] = useState(false);
   const [showAllBids, setShowAllBids] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [mounted, setMounted] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setMounted(true), []);
+  /** 上の帯の差し込み口（SiteHeader の #header-bid） */
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    setHeaderSlot(document.getElementById("header-bid"));
+  }, []);
 
   /**
    * ログインから戻ってきたら、入札の続きをその場で開く。
@@ -106,19 +111,6 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
       setAnnouncement("オークションが終了しました。");
     }
   }, [state]);
-
-  // 入札カードを追い越したら、下端に控えの入札バーを出す
-  useEffect(() => {
-    const el = panelRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      ([entry]) =>
-        setBarShown(!entry.isIntersecting && entry.boundingClientRect.top < 0),
-      { threshold: 0 },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
 
   const submit = useCallback(async (amount: number) => {
     const result = await postBid(amount, newRequestId());
@@ -362,49 +354,37 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
       </section>
       </Card>
 
-      {/* 追い越したあとの控え */}
-      <div
-        data-shown={barShown && !ended}
-        inert={!barShown || ended}
-        className="fixed inset-x-0 bottom-0 z-40 translate-y-full border-t border-[var(--rule)]
-                   bg-ground/92 opacity-0 backdrop-blur-md
-                   transition-[transform,opacity] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]
-                   data-[shown=true]:translate-y-0 data-[shown=true]:opacity-100"
-      >
-        <div className="page flex items-center gap-4 py-2.5">
-          <Bracket
-            gap={3.4}
-            title={site.title}
-            className="hidden h-4 w-auto shrink-0 sm:block"
-          />
-          <div className="flex min-w-0 flex-1 items-baseline gap-4 sm:justify-end">
-            <span className="num text-[1.0625rem] font-light">
+      {/* 上の帯に出す、いまの金額と入札ボタン（下端の控えのバーは 2026-11-25 にここへ移した） */}
+      {headerSlot &&
+        createPortal(
+          <>
+            <span className="num text-[1rem] font-light md:text-[1.0625rem]">
               {yen(state.currentBid)}
             </span>
-            <span
-              className={`num text-[0.8125rem] ${nearEnd ? "text-alert" : "text-ink/78"}`}
-            >
-              残り <Countdown endsAt={state.endsAt} offsetMs={offset} />
-            </span>
-          </div>
-          {isHandoff ? (
-            <a
-              href={auctionPageUrl}
-              className="btn-line shrink-0 border-ink bg-ink text-ground-lift hover:bg-ink"
-            >
-              入札する
-            </a>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setDialogOpen(true)}
-              className="btn-line shrink-0 border-ink bg-ink text-ground-lift hover:bg-ink"
-            >
-              入札する
-            </button>
-          )}
-        </div>
-      </div>
+            {!ended && (
+              <span
+                className={`num hidden text-[0.8125rem] sm:inline ${nearEnd ? "text-alert" : "text-ink/78"}`}
+              >
+                残り <Countdown endsAt={state.endsAt} offsetMs={offset} />
+              </span>
+            )}
+            {!ended &&
+              (isHandoff ? (
+                <a href={auctionPageUrl} className="btn-line shrink-0">
+                  入札する
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setDialogOpen(true)}
+                  className="btn-line shrink-0"
+                >
+                  入札する
+                </button>
+              ))}
+          </>,
+          headerSlot,
+        )}
 
       <BidDialog
         open={dialogOpen}

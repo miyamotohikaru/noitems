@@ -411,3 +411,8 @@
     visibility: hidden;
   }
 }
+
+/* 上の帯: AuctionRoom が金額と入札ボタンを差し込んだら、控えの「入札する」は隠す（SiteHeader.tsx） */
+#header-bid:not(:empty) + .header-bid-fallback {
+  display: none;
+}
