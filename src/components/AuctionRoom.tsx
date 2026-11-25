@@ -7,7 +7,7 @@ import type { AuctionState } from "@/lib/auction/types";
 import { fetchAuction, newRequestId, postBid } from "@/lib/auctionClient";
 import { auctionPageUrl, isHandoff } from "@/lib/handoff";
 import { jstDateTime, yen } from "@/lib/format";
-import { legal, site } from "@/lib/lot";
+import { legal } from "@/lib/lot";
 import { tradeTerms } from "@/lib/tradeTerms";
 import { Bracket } from "./Bracket";
 import { BidDialog } from "./BidDialog";
@@ -361,11 +361,7 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
       {subSlot &&
         createPortal(
           <div className="page flex h-full items-center gap-4">
-            <Bracket
-              gap={3.4}
-              title={site.title}
-              className="hidden h-4 w-auto shrink-0 sm:block"
-            />
+            {/* 左にあった小さい括弧は、1段目のロゴと重なるので外した（2026-11-26 ユーザー指定） */}
             <div className="flex min-w-0 flex-1 items-baseline gap-4 sm:justify-end">
               <span className="num text-[1.0625rem] font-light">
                 {yen(state.currentBid)}
