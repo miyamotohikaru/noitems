@@ -21,12 +21,14 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
   const [mounted, setMounted] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  /** 上の帯の差し込み口（SiteHeader の #header-bid） */
+  /** 上の帯の差し込み口（SiteHeader の #header-bid = 入札ボタン、#header-sub = 2段目の金額と残り時間） */
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  const [subSlot, setSubSlot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
     setHeaderSlot(document.getElementById("header-bid"));
+    setSubSlot(document.getElementById("header-sub"));
   }, []);
 
   /**
@@ -354,20 +356,36 @@ export function AuctionRoom({ initial }: { initial: AuctionState }) {
       </section>
       </Card>
 
-      {/* 上の帯に出す、いまの金額と入札ボタン（下端の控えのバーは 2026-11-25 にここへ移した） */}
+      {/* 上の帯の2段目: いまの金額と残り時間（下端の控えのバーは 2026-11-25 に上の帯へ移した） */}
+      {subSlot &&
+        createPortal(
+          <>
+            <span className="flex items-baseline gap-3">
+              <span className="label-jp">
+                {/* 入札の札（上）と同じ呼び分け */}
+                {isHandoff ? "開始価格" : ended ? "落札額" : scheduled ? "開始価格" : "現在の入札額"}
+              </span>
+              <span className="num text-[0.9375rem] font-light md:text-[1rem]">
+                {yen(state.currentBid)}
+              </span>
+            </span>
+            <span
+              className={`num whitespace-nowrap text-[0.75rem] md:text-[0.8125rem] ${nearEnd ? "text-alert" : "text-ink/78"}`}
+            >
+              {ended ? "終了しました" : (
+                <>
+                  残り <Countdown endsAt={state.endsAt} offsetMs={offset} />
+                </>
+              )}
+            </span>
+          </>,
+          subSlot,
+        )}
+
+      {/* 上の帯の入札ボタン */}
       {headerSlot &&
         createPortal(
           <>
-            <span className="num text-[1rem] font-light md:text-[1.0625rem]">
-              {yen(state.currentBid)}
-            </span>
-            {!ended && (
-              <span
-                className={`num hidden text-[0.8125rem] sm:inline ${nearEnd ? "text-alert" : "text-ink/78"}`}
-              >
-                残り <Countdown endsAt={state.endsAt} offsetMs={offset} />
-              </span>
-            )}
             {!ended &&
               (isHandoff ? (
                 <a href={auctionPageUrl} className="btn-line shrink-0">

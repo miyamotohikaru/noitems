@@ -36,7 +36,10 @@
   /* 区切り記号「／」の濃度。opacity の掛け算をやめ、ここ一箇所で決める */
   --sep: rgb(22 19 15 / 0.32);
   --page: 78rem;
-  --nav-h: 4.5rem;
+  /* 上の帯の1段目の高さ。--nav-h は帯全体の高さ（入札のページでは下に2段目が付く） */
+  --nav-row: 4.5rem;
+  --nav-sub: 2.25rem;
+  --nav-h: var(--nav-row);
   /* 節の縦のリズムは2値だけ。空白に根拠を持たせる */
   --gap-major: clamp(4.5rem, 9vw, 9rem);
   --gap-minor: clamp(3rem, 5vw, 5rem);
@@ -442,4 +445,9 @@
 /* 上の帯: AuctionRoom が金額と入札ボタンを差し込んだら、控えの「入札する」は隠す（SiteHeader.tsx） */
 #header-bid:not(:empty) + .header-bid-fallback {
   display: none;
+}
+
+/* 上の帯の2段目（金額と残り時間）があるページだけ、帯全体の高さを2段ぶんにする（SiteHeader.tsx） */
+:root:has(#header-sub) {
+  --nav-h: calc(var(--nav-row) + var(--nav-sub));
 }

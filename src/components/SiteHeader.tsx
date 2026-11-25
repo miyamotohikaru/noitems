@@ -24,7 +24,7 @@ export function SiteHeader() {
                  data-[settled=true]:bg-ground/82
                  data-[settled=true]:backdrop-blur-md"
     >
-      <div className="page flex h-full items-center justify-between gap-6">
+      <div className="page flex h-[var(--nav-row)] items-center justify-between gap-6">
         <a
           href="#top"
           className="-my-2 shrink-0 py-2"
@@ -46,16 +46,24 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        {/* いまの金額と入札ボタン。はじめから上の帯にずっと出す（2026-11-25 ユーザー指定。
-            それまでは入札カードを追い越したときだけ下端に出していた）。
-            中身は AuctionRoom が #header-bid へ差し込む。オークションが読めなかったときだけ
-            下の「入札する」が残る（globals.css の .header-bid-fallback） */}
+        {/* 入札ボタン。中身は AuctionRoom が #header-bid へ差し込む。
+            オークションが読めなかったときだけ下の「入札する」が残る（globals.css の .header-bid-fallback） */}
         <div className="flex shrink-0 items-center gap-4 md:gap-6">
           <div id="header-bid" className="contents" />
           <a href="#auction" className="header-bid-fallback btn-line shrink-0">
             入札する
           </a>
         </div>
+      </div>
+
+      {/* 2段目: いまの金額と残り時間。はじめからずっと出す（2026-11-25 ユーザー指定
+          「残り時間と金額がヘッダーに欲しい」「ヘッダーの一個下」。それまでは下端のバーに出していた）。
+          中身は AuctionRoom が #header-sub へ差し込む */}
+      <div className="border-t border-[var(--rule)] bg-ground/82 backdrop-blur-md">
+        <div
+          id="header-sub"
+          className="page flex h-[var(--nav-sub)] items-center justify-between gap-4"
+        />
       </div>
     </header>
   );
